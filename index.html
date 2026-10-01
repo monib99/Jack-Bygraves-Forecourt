@@ -3323,7 +3323,10 @@ function renderMuzaribat(){
   return `
   <div class="topbar">
     <div><h1>Muzaribat</h1><div class="date">Investor-funded stock &mdash; positions, profits and withdrawals</div></div>
-    <button class="btn btn-brand" onclick="openMuzaribForm()">+ Add investor</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${isSuperAdmin()?`<button class="btn btn-ghost" onclick="openRepair()">🔧 Fix the data</button>`:''}
+      <button class="btn btn-brand" onclick="openMuzaribForm()">+ Add investor</button>
+    </div>
   </div>
 
   ${list.length ? `
@@ -6162,6 +6165,105 @@ function openGapList(){
       </tr>`).join('')}</tbody></table></div>`
      : '<div class="empty">Every record is complete.</div>'}
     <div class="modal-actions"><button class="btn btn-brand" onclick="closeModal()">Close</button></div>`);
+}
+
+
+/* =========================================================================
+   DATA REPAIR — run on its own, without re-importing anything.
+   ========================================================================= */
+function repairScan(){
+  const SAME = {'rahman':'Wardak','wardak':'Wardak','wahid':'Waheed','waheed':'Waheed',
+                'yaqboob':'Yaqoob','yaqoob':'Yaqoob','abdulah':'Abdullah','abdullah':'Abdullah'};
+  const dupGroups = [];
+  Object.values(SAME).filter((v,i,a)=>a.indexOf(v)===i).forEach(keepName=>{
+    const g=(DB.muzaribs||[]).filter(m=>SAME[(m.name||'').toLowerCase()]===keepName);
+    if(g.length>1) dupGroups.push({keepName, names:g.map(m=>m.name)});
+  });
+  return {
+    SAME, dupGroups,
+    badTx:   (DB.muzaribTx||[]).filter(t=>t.type==='in').length,
+    ownerLinks:(DB.vehicles||[]).filter(v=>v.owner && !v.muzaribId).length,
+    prepPriced:(DB.vehicles||[]).filter(v=>!v.sale && v.status==='prep' && Number(v.askingPrice||v.price||0)>0).length,
+    priceField:(DB.vehicles||[]).filter(v=>!v.sale && !(Number(v.askingPrice)>0) && Number(v.price)>0).length,
+  };
+}
+
+function openRepair(){
+  if(!isSuperAdmin()){ alert('Only a Super Admin can run this.'); return; }
+  const s = repairScan();
+  const rows = [
+    ['Duplicate investor accounts', s.dupGroups.length,
+      s.dupGroups.map(d=>d.names.join(' + ')+' → '+d.keepName).join('; ')],
+    ['Opening balances not counted', s.badTx, 'Saved as "in" instead of "capital", so they total zero'],
+    ['Cars not linked to their investor', s.ownerLinks, 'Investor saved in the wrong field'],
+    ['Asking price in the wrong field', s.priceField, 'Price saved but the list reads a different field'],
+    ['Priced cars still showing as prep', s.prepPriced, 'They are for sale, so they should read Ready to sell'],
+  ];
+  const total = rows.reduce((n,r)=>n+r[1],0);
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Fix the data</h3>
+    <div class="small-muted" style="margin-bottom:12px;">
+      These are faults left by earlier versions of the import. Nothing is deleted —
+      records are merged, re-linked or re-labelled.
+    </div>
+    <div class="card" style="padding:0;"><table>
+      <thead><tr><th>What</th><th style="text-align:right">Found</th><th>Detail</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr>
+        <td>${r[1]?'<b>'+r[0]+'</b>':r[0]}</td>
+        <td style="text-align:right">${r[1]?`<span class="tag tag-red">${r[1]}</span>`:'<span class="tag tag-green">0</span>'}</td>
+        <td class="small-muted">${escapeHtml(r[2]||'')}</td></tr>`).join('')}
+      </tbody></table></div>
+    ${total? '' : '<div class="small-muted" style="margin-top:10px;">Nothing to fix — your data is already correct.</div>'}
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      ${total?`<button class="btn btn-brand" onclick="runRepair()">Fix all ${total}</button>`:''}
+    </div>`);
+}
+
+function runRepair(){
+  if(!isSuperAdmin()) return;
+  const SAME = repairScan().SAME;
+  let merged=0, txFixed=0, linked=0, priced=0, readied=0;
+
+  // 1. opening balances counted as capital
+  (DB.muzaribTx||[]).forEach(t=>{ if(t.type==='in'){ t.type='capital'; txFixed++; } });
+
+  // 2. merge investors recorded under two spellings
+  Object.values(SAME).filter((v,i,a)=>a.indexOf(v)===i).forEach(keepName=>{
+    const g=(DB.muzaribs||[]).filter(m=>SAME[(m.name||'').toLowerCase()]===keepName);
+    if(g.length<2) return;
+    const keep=g.find(m=>(m.name||'').toLowerCase()===keepName.toLowerCase())||g[0];
+    keep.name=keepName;
+    g.filter(m=>m.id!==keep.id).forEach(dup=>{
+      (DB.vehicles||[]).forEach(v=>{ if(v.muzaribId===dup.id) v.muzaribId=keep.id; });
+      (DB.muzaribTx||[]).forEach(t=>{ if(t.muzaribId===dup.id) t.muzaribId=keep.id; });
+      DB.muzaribs=DB.muzaribs.filter(m=>m.id!==dup.id);
+      merged++;
+      logChange('muzaribat','Merged duplicate investor', mzRef(keep),'Name',dup.name,keep.name,'Same person, two spellings');
+    });
+  });
+
+  // 3. re-link cars whose investor sat in the wrong field
+  (DB.vehicles||[]).forEach(v=>{
+    if(v.owner && !v.muzaribId){
+      const name = typeof v.owner==='string' ? v.owner : '';
+      const want = SAME[name.toLowerCase()] || name;
+      const m = (DB.muzaribs||[]).find(x=>(x.name||'').toLowerCase()===want.toLowerCase());
+      if(m){ v.muzaribId=m.id; delete v.owner; linked++; }
+    }
+  });
+
+  // 4. asking price into the field the app reads, then mark it ready
+  (DB.vehicles||[]).forEach(v=>{
+    if(!v.sale && !(Number(v.askingPrice)>0) && Number(v.price)>0){ v.askingPrice=Number(v.price); priced++; }
+    if(!v.sale && v.status==='prep' && Number(v.askingPrice||v.price||0)>0){ v.status='ready'; readied++; }
+  });
+
+  logChange('settings','Ran the data repair',{id:'repair',label:'Repair'},'','',
+    `${merged} merged · ${txFixed} balances · ${linked} links · ${priced} prices · ${readied} ready`,'');
+  saveDB(); closeModal(); render();
+  alert(`Done.\n\n${merged} duplicate investors merged\n${txFixed} opening balances now counted\n${linked} cars re-linked to their investor\n${priced} asking prices corrected\n${readied} cars marked ready to sell`);
 }
 
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
