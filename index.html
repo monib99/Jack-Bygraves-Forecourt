@@ -267,7 +267,6 @@
 <div id="app" style="display:none;">
   <div id="sidebar">
     <div class="brand-row">
-      <img id="sidebarLogo" alt="Car Express" style="width:100%;max-width:190px;display:block;margin-bottom:8px;"/>
       <input id="bizName" value="Jack Bygraves Forecourt" oninput="App.setBizName(this.value)"/>
       <input id="dealerPostcode" placeholder="Forecourt postcode" title="Used for local Auto Trader valuations"
              oninput="DB.dealerPostcode=this.value.trim().toUpperCase();saveDB();"
@@ -861,7 +860,7 @@ function renderStock(){
   <div class="toolbar">
     <input placeholder="Search reg, make or model…" value="${stockSearch}" oninput="stockSearch=this.value;render()" style="width:260px"/>
     <button class="btn btn-ghost btn-sm" onclick="exportStockCSV()">⬇ Export CSV</button>
-    ${isManager()?`<button class="btn btn-ghost btn-sm" onclick="openSourcingCheck()">💷 Check a car before buying</button><button class="btn btn-brand btn-sm" onclick="publishToWebsite()">🌐 Publish to website</button>${isSuperAdmin()&&!DB.sheetImportedAt?`<button class="btn btn-ghost btn-sm" onclick="importPreview()">📥 Import stock sheet</button>`:''}<button class="btn btn-ghost btn-sm" onclick="exportStockForWebsite()">⬇ stock.json</button><span class="small-muted">${DB.websitePublishedAt?`Last published ${fmtDate(DB.websitePublishedAt.slice(0,10))} · ${DB.websitePublishedCount||0} cars`:'Not published yet'}</span>`:''}
+    ${isManager()?`<button class="btn btn-ghost btn-sm" onclick="openSourcingCheck()">💷 Check a car before buying</button><button class="btn btn-brand btn-sm" onclick="publishToWebsite()">🌐 Publish to website</button>${isSuperAdmin()?`<button class="btn btn-ghost btn-sm" onclick="importPreview()">📥 ${DB.sheetImportedAt?'Update from stock sheet':'Import stock sheet'}</button>`:''}<button class="btn btn-ghost btn-sm" onclick="exportStockForWebsite()">⬇ stock.json</button><span class="small-muted">${DB.websitePublishedAt?`Last published ${fmtDate(DB.websitePublishedAt.slice(0,10))} · ${DB.websitePublishedCount||0} cars`:'Not published yet'}</span>`:''}
   </div>
   <div class="card" style="padding:0;overflow:auto;">
     ${list.length===0? `<div class="empty"><div class="big">No vehicles here</div>Add your first vehicle by registration to get started.</div>` : `
@@ -4268,7 +4267,7 @@ function siteData(){
 function defaultSite(){
   return {
     settings: {
-      name:'Car Express', tagline:'Quality used cars in Hemel Hempstead',
+      name:'Jack Bygraves', tagline:'Quality used cars',
       phone:'', whatsapp:'', email:'', address:['',''], mapsQuery:'',
       hours:'Mon – Sat 9:00 – 18:00 · Sun 10:00 – 16:00',
       social:{facebook:'',instagram:'',tiktok:'',youtube:''},
@@ -4776,7 +4775,7 @@ function renderSbSettings(S){
       <div class="small-muted">One line each.</div></div>
     <div class="field-row">
       <div class="field"><label>Opening hours</label><input id="st_hours" value="${escapeAttr(st.hours||'')}" onchange="saveSiteSettings()"/></div>
-      <div class="field"><label>Google Maps search</label><input id="st_maps" value="${escapeAttr(st.mapsQuery||'')}" placeholder="Car Express Hemel Hempstead" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>Google Maps search</label><input id="st_maps" value="${escapeAttr(st.mapsQuery||'')}" placeholder="Jack Bygraves" onchange="saveSiteSettings()"/></div>
     </div>
   </div>
 
@@ -5244,8 +5243,17 @@ const SHEET_IMPORT = {"cars":[{"r":"FV62 BFF","mk":"SUZUKI","md":"SUZUKI GRAND V
 
 function importPreview(){
   if(!isSuperAdmin()){ alert('Only a Super Admin can run the import.'); return; }
-  const have = new Set((DB.vehicles||[]).map(v=>(v.reg||'').toUpperCase().replace(/\s+/g,'')));
-  const incoming = SHEET_IMPORT.cars.filter(c=>!have.has(c.r.toUpperCase().replace(/\s+/g,'')));
+  const key = r => (r||'').toUpperCase().replace(/\s+/g,'');
+  const byReg = {};
+  (DB.vehicles||[]).forEach(v=>{ byReg[key(v.reg)] = v; });
+  const incoming = SHEET_IMPORT.cars.filter(c=>!byReg[key(c.r)]);
+  // Cars already here that are missing a price or have no costs recorded yet
+  const updatable = SHEET_IMPORT.cars.filter(c=>{
+    const v = byReg[key(c.r)]; if(!v) return false;
+    const noPrice = c.p && !(Number(v.price)>0);
+    const noCost  = Object.values(v.costs||{}).reduce((a,b)=>a+(Number(b)||0),0) <= 0;
+    return noPrice || noCost;
+  });
   const dupes = SHEET_IMPORT.cars.length - incoming.length;
   const haveInv = new Set((DB.muzaribs||[]).map(m=>(m.name||'').toLowerCase()));
   const newInv = SHEET_IMPORT.inv.filter(n=>!haveInv.has(n.toLowerCase()));
@@ -5259,7 +5267,7 @@ function importPreview(){
     </div>
     <div class="grid kpi-grid" style="margin-bottom:12px;">
       <div class="card kpi"><div class="label">Cars to add</div><div class="value small">${incoming.length}</div></div>
-      <div class="card kpi"><div class="label">Already in app</div><div class="value small">${dupes}</div></div>
+      <div class="card kpi"><div class="label">Already in app</div><div class="value small">${dupes}</div>${updatable.length?`<div class="sub">${updatable.length} to update</div>`:''}</div>
       <div class="card kpi"><div class="label">Investors</div><div class="value small">${SHEET_IMPORT.inv.length}</div><div class="sub">${newInv.length} new</div></div>
       <div class="card kpi"><div class="label">Stock cost</div><div class="value small">${fmtMoney(totalCost)}</div></div>
       <div class="card kpi"><div class="label">Investor cash</div><div class="value small">${fmtMoney(Object.values(SHEET_IMPORT.cash||{}).reduce((a,b)=>a+b,0))}</div></div>
@@ -5277,11 +5285,12 @@ function importPreview(){
       </tbody></table>
     </div>
     <div class="overdue-banner" style="margin-top:10px;">
-      <span>Check the list before importing. Anything already in the app is skipped, so running this twice is safe.</span>
+      <span>Cars already in the app keep their own details. Any that are missing an asking price or costs
+      will have those filled in from the sheet — nothing you have typed yourself is overwritten.</span>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-brand" onclick="runSheetImport()">Import ${incoming.length} cars</button>
+      <button class="btn btn-brand" onclick="runSheetImport()">${incoming.length?('Import '+incoming.length+' cars'):''}${incoming.length&&updatable.length?' and ':''}${updatable.length?('update '+updatable.length):''}</button>
     </div>`);
 }
 
@@ -5314,9 +5323,37 @@ function runSheetImport(){
     }
   });
 
-  let added = 0;
+  const key = r => (r||'').toUpperCase().replace(/\s+/g,'');
+  const byReg = {};
+  (DB.vehicles||[]).forEach(v=>{ byReg[key(v.reg)] = v; });
+
+  let added = 0, updated = 0;
   SHEET_IMPORT.cars.forEach(c=>{
-    if(have.has(c.r.toUpperCase().replace(/\s+/g,''))) return;
+    const existing = byReg[key(c.r)];
+    if(existing){
+      // Fill the gaps only — never overwrite something already entered by hand.
+      let touched = false;
+      if(c.p && !(Number(existing.price)>0)){ existing.price = c.p; touched = true; }
+      if(c.va && !existing.variant){ existing.variant = c.va; touched = true; }
+      const cur = Object.values(existing.costs||{}).reduce((a,b)=>a+(Number(b)||0),0);
+      if(cur <= 0 && c.c){
+        existing.costs = Object.assign({purchase:0,delivery:0,service:0,mot:0,bodywork:0,
+          mechanical:0,autotrader:0,fuel:0,other:0}, c.c);
+        touched = true;
+        if(!existing.works) existing.works = [];
+        (c.w||[]).forEach(w=>existing.works.push({id:nextId('work'), title:w.d,
+          type:'From daily book', cost:0,
+          note:'Daily book record · ' + fmtMoney(w.a) + ' (already included in the costs above)',
+          doneAt:w.t||c.dt, by:'Import', createdAt:todayISO()}));
+      }
+      if(c.ow && !existing.muzaribId && idFor[c.ow]){ existing.muzaribId = idFor[c.ow]; touched = true; }
+      if(touched){
+        updated++;
+        logChange('stock','Updated from the stock sheet', vehRef(existing), '', '', c.r,
+          'Filled in missing price and costs');
+      }
+      return;
+    }
     const costs = {purchase:0,delivery:0,service:0,mot:0,bodywork:0,
                    mechanical:0,autotrader:0,fuel:0,other:0};
     Object.entries(c.c||{}).forEach(([k,v])=>{ if(k in costs) costs[k]=v; });
@@ -5328,7 +5365,7 @@ function runSheetImport(){
       listedAt: c.dy ? new Date(Date.now() - c.dy*86400000).toISOString().slice(0,10) : null,
       retailCheck: c.rv ? {retail:c.rv, indicator:c.pi||'', source:'AutoTrader portal', at: todayISO()} : null,
       dateAdded: c.dt || todayISO(), costs: costs,
-      owner: c.ow ? idFor[c.ow] : null,
+      muzaribId: c.ow ? idFor[c.ow] : null,
       issues: [], parts: [], works: [], photoIds: [], invoicePhotoIds: [],
       note: 'Imported from the stock sheet' + (c.sn?' (stock no '+c.sn+')':'') + (c.dy?' · '+c.dy+' days advertised at import':'')
     };
@@ -5347,7 +5384,7 @@ function runSheetImport(){
   });
   DB.sheetImportedAt = new Date().toISOString();
   saveDB(); closeModal(); render();
-  alert('Imported ' + added + ' cars.\n\nInvestor accounts are set to the default 50/50 split with a £500 admin charge — change those per investor in Muzaribat if they differ.');
+  alert('Added ' + added + ' cars and updated ' + updated + '.\n\nInvestor accounts use a 50/50 split with the £500 admin charge — change those per investor in Muzaribat if any differ.');
 }
 
 
@@ -5674,7 +5711,7 @@ async function enterApp(user){
   await loadDB();
   document.getElementById('bizName').value = DB.bizName || 'Jack Bygraves Forecourt';
   const logoEl = document.getElementById('sidebarLogo');
-  if(logoEl && typeof BRAND_LOGO === 'string') logoEl.src = BRAND_LOGO;
+  if(logoEl){ if(BRAND_LOGO){ logoEl.src = BRAND_LOGO; } else { logoEl.remove(); } }
   const dp = document.getElementById('dealerPostcode'); if(dp) dp.value = DB.dealerPostcode || '';
   bootstrapCurrentUserProfile();
   document.getElementById('userEmailLabel').textContent = currentUserName + ' (' + roleLabel(currentUserRole) + ')';
