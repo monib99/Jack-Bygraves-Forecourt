@@ -254,7 +254,7 @@
   <div style="background:#fff;border-radius:16px;padding:36px;width:100%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.4);">
     <div style="font-family:'Barlow Condensed';font-weight:700;font-size:26px;line-height:1.15;color:#14120C;">Jack Bygraves<br><span style="color:#B4903C">Forecourt</span></div>
     <div style="color:#7A7F84;font-size:13px;margin:8px 0 20px;">Sign in to your workspace</div>
-    <div id="setupNotice" style="display:none;background:#B4903C14;color:#8A7434;border:1px solid #B4903C33;border-radius:8px;padding:12px;font-size:12.5px;margin-bottom:16px;line-height:1.5;">
+    <div id="setupNotice" style="display:none;background:#E07A1F14;color:#E07A1F;border:1px solid #E07A1F33;border-radius:8px;padding:12px;font-size:12.5px;margin-bottom:16px;line-height:1.5;">
       This app isn't connected to a database yet. Open the code and fill in <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> near the top of the script — see the setup guide.
     </div>
     <div class="field"><label>Email</label><input id="login_email" type="email" style="width:100%;font-size:16px;" autocomplete="username"/></div>
@@ -267,7 +267,11 @@
 <div id="app" style="display:none;">
   <div id="sidebar">
     <div class="brand-row">
+      <img id="sidebarLogo" alt="Car Express" style="width:100%;max-width:190px;display:block;margin-bottom:8px;"/>
       <input id="bizName" value="Jack Bygraves Forecourt" oninput="App.setBizName(this.value)"/>
+      <input id="dealerPostcode" placeholder="Forecourt postcode" title="Used for local Auto Trader valuations"
+             oninput="DB.dealerPostcode=this.value.trim().toUpperCase();saveDB();"
+             style="margin-top:6px;font-size:12px;opacity:.85;"/>
       <div class="sub">Stock &amp; operations</div>
       <button id="mobileMenuToggle" onclick="toggleMobileMenu()">☰ Menu</button>
     </div>
@@ -281,6 +285,8 @@
       <div class="nav-item" data-tab="reports" onclick="App.go('reports')">📈 Reports</div>
       <div class="nav-item" data-tab="boardroom" onclick="App.go('boardroom')">💡 Ideas &amp; Capital</div>
       <div class="nav-item" data-tab="muzaribat" onclick="App.go('muzaribat')">🤝 Muzaribat</div>
+      <div class="nav-item" data-tab="website" onclick="App.go('website')">🌐 Website</div>
+      <div class="nav-item" data-tab="audit" onclick="App.go('audit')">🔍 Change log</div>
       <div class="foot">
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
@@ -300,35 +306,9 @@
 /* =========================================================================
    SUPABASE CONFIG — paste your own project's values here (see setup guide).
    ========================================================================= */
-/* ============================================================
-   JACK BY GRAVES — paste this business's OWN Supabase details here.
-   These MUST be different from the Car Express ones, or the two
-   businesses would share a database.
-   Supabase → Settings → API → Project URL and the anon/publishable key.
-   ============================================================ */
+const BRAND_LOGO = '';
 const SUPABASE_URL = 'https://igamlgjrejxpktrbdpug.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_wMLTAzLkrdlv3FiavZRkXA_W3FE0M-q';
-
-// Safety net: refuse to start if the details haven't been set, or if they
-// still point at the Car Express project.
-(function(){
-  const unset = SUPABASE_URL.indexOf('PASTE_') === 0 || SUPABASE_ANON_KEY.indexOf('PASTE_') === 0;
-  const carExpress = SUPABASE_URL.indexOf('kpqbnrmfxdditbbfqctr') !== -1;
-  if(unset || carExpress){
-    document.addEventListener('DOMContentLoaded', function(){
-      document.body.innerHTML =
-        '<div style="max-width:560px;margin:14vh auto;padding:30px;font-family:system-ui;'+
-        'background:#fff;border:2px solid #B4903C;border-radius:14px;color:#14120C;line-height:1.6">'+
-        '<h2 style="margin:0 0 12px">Setup needed</h2>'+
-        '<p>' + (carExpress
-          ? 'This file is still pointing at the <b>Car Express</b> database. Jack by Graves needs its own Supabase project, or the two businesses would share data.'
-          : 'This copy has not been connected to a Supabase project yet.') + '</p>'+
-        '<p>Open <code>index.html</code>, find <code>SUPABASE_URL</code> near the top, and paste this business\'s own Project URL and publishable key.</p>'+
-        '</div>';
-    });
-    throw new Error('Supabase not configured for Jack by Graves');
-  }
-})();
 const PHOTOS_BUCKET = 'photos';
 const APP_DATA_ROW_ID = 'main';
 
@@ -351,7 +331,10 @@ const DEFAULT_DB = () => ({
   assets: [],
   leads: [],
   muzaribs: [],
+  floats: [],
+  site: null,
   muzaribTx: [],
+  audit: [],
   seq: 1
 });
 const CHECKLIST_TEMPLATE = [
@@ -591,8 +574,9 @@ function isDueSoon(dateStr){ if(!dateStr) return false; const d=new Date(dateStr
    ========================================================================= */
 function vehicleCostTotal(v){
   const c = v.costs||{};
-  return ['purchase','delivery','service','mot','bodywork','mechanical','autotrader','fuel','other']
+  const base = ['purchase','delivery','service','mot','bodywork','mechanical','autotrader','fuel','other']
     .reduce((s,k)=> s + (Number(c[k])||0), 0);
+  return base + partsTotal(v) + worksTotal(v);
 }
 function vehicleNetSale(v){
   if(!v.sale) return 0;
@@ -637,7 +621,12 @@ function render(){
   if(brNav) brNav.style.display = isManager() ? '' : 'none';
   const mzNav = document.querySelector('.nav-item[data-tab="muzaribat"]');
   if(mzNav) mzNav.style.display = isManager() ? '' : 'none';
-  if((currentTab==='boardroom'||currentTab==='muzaribat') && !isManager()) currentTab = 'dashboard';
+  const wsNav = document.querySelector('.nav-item[data-tab="website"]');
+  if(wsNav) wsNav.style.display = isManager() ? '' : 'none';
+  const auNav = document.querySelector('.nav-item[data-tab="audit"]');
+  if(auNav) auNav.style.display = isSuperAdmin() ? '' : 'none';
+  if(currentTab==='audit' && !isSuperAdmin()) currentTab = 'dashboard';
+  if(['boardroom','muzaribat','website'].includes(currentTab) && !isManager()) currentTab = 'dashboard';
   const overdueIssues = allOpenIssues().filter(i=>isOverdue(i.reminderDate));
   const overdueTasks = DB.tasks.filter(t=>!t.done && isOverdue(t.date));
   document.querySelector('.nav-item[data-tab="tasks"]').classList.toggle('has-alert', (overdueIssues.length+overdueTasks.length)>0);
@@ -655,9 +644,12 @@ function render(){
   else if(currentTab==='reports') html = renderReports();
   else if(currentTab==='boardroom') html = renderBoardroom();
   else if(currentTab==='muzaribat') html = renderMuzaribat();
+  else if(currentTab==='website') html = renderSiteBuilder();
+  else if(currentTab==='audit') html = renderAudit();
   main.innerHTML = html;
 
   if(currentTab==='reports') drawReportCharts();
+  if(currentTab==='website' && typeof initSectionDrag==='function') initSectionDrag();
 }
 const App = {
   go(tab){ currentTab = tab; closeModal(); closeMobileMenu(); render(); },
@@ -678,7 +670,8 @@ function renderDashboard(){
   const thisWeek = soldVehicles.filter(v=> weekKey(v.sale.date)===weekKey(todayISO()));
   const weekRevenue = thisWeek.reduce((s,v)=>s+vehicleNetSale(v),0);
   const weekProfit = thisWeek.reduce((s,v)=>s+vehicleProfit(v),0);
-  const owedToStaff = DB.expenses.filter(e=>e.status==='owed').reduce((s,e)=>s+Number(e.amount||0),0);
+  const owedToStaff = DB.expenses.filter(e=>e.status==='owed' && e.fundedBy!=='float')
+    .reduce((s,e)=>s+Number(e.amount||0),0);
 
   const byStatus = {};
   DB.vehicles.forEach(v=>{ byStatus[v.status]=(byStatus[v.status]||0)+1; });
@@ -739,19 +732,98 @@ function renderDashboard(){
   `;
 }
 
+/* Completing a job asks what it cost, so the spend is captured while it's
+   fresh. You can skip and add it later — the job is then flagged as
+   "cost to add" rather than quietly counting as free. */
 function markIssueDone(vId, issueId){
   const v = DB.vehicles.find(x=>x.id===vId); if(!v) return;
-  const iss = v.issues.find(x=>x.id===issueId); if(!iss) return;
-  iss.status='done'; iss.doneAt = todayISO();
-  // If every outstanding issue on this vehicle is now cleared, and it was
-  // sitting in a "needs work" status, move it straight to Ready to sell.
+  const iss = (v.issues||[]).find(x=>x.id===issueId); if(!iss) return;
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Job finished</h3>
+    <div class="small-muted" style="margin-bottom:12px;">
+      <b>${escapeHtml(v.reg)}</b> — ${escapeHtml(iss.description || iss.type || 'repair')}
+    </div>
+    <div class="field-row">
+      <div class="field"><label>What did it cost? (£)</label>
+        <input id="jd_cost" type="number" step="0.01" placeholder="0.00" autofocus/></div>
+      <div class="field"><label>Type</label>
+        <select id="jd_type">${['Mechanical','Bodywork','Service','MOT','Part','Other']
+          .map(t=>`<option ${guessWorkType(iss)===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>What was done / who did it</label>
+      <textarea id="jd_note" rows="2" placeholder="e.g. New nearside wishbone fitted at Dave's garage">${escapeHtml(iss.note||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="finishIssue('${vId}','${issueId}',false)" style="margin-right:auto">Add cost later</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="finishIssue('${vId}','${issueId}',true)">Save &amp; mark done</button>
+    </div>`);
+}
+function guessWorkType(iss){
+  const t = (iss.type||'').toLowerCase();
+  if(t.includes('body')) return 'Bodywork';
+  if(t.includes('part') || t.includes('missing')) return 'Part';
+  if(t.includes('mech')) return 'Mechanical';
+  return 'Mechanical';
+}
+function finishIssue(vId, issueId, withCost){
+  const v = DB.vehicles.find(x=>x.id===vId); if(!v) return;
+  const iss = (v.issues||[]).find(x=>x.id===issueId); if(!iss) return;
+  const cost = withCost ? (Number((document.getElementById('jd_cost')||{}).value)||0) : 0;
+  const type = withCost ? (document.getElementById('jd_type')||{}).value : guessWorkType(iss);
+  const note = (document.getElementById('jd_note')||{}).value || '';
+
+  iss.status='done'; iss.doneAt = todayISO(); iss.doneBy = currentUserName;
+  if(note) iss.note = note;
+  iss.costPending = !withCost || cost<=0;
+
+  // Record it as a work line so it shows in the cost breakdown and history
+  if(!v.works) v.works = [];
+  v.works.push({
+    id: nextId('work'), title: iss.description || (type + ' work'),
+    type, cost, note, issueId: iss.id,
+    costPending: iss.costPending,
+    doneAt: todayISO(), by: currentUserName, createdAt: todayISO()
+  });
+
+  logChange('cost','Completed work on', vehRef(v), type,
+    '', cost>0 ? fmtMoney(cost) : 'cost to add later',
+    (iss.description||'') + (note?' — '+note:''));
+
   const stillOpen = (v.issues||[]).some(x=>x.status!=='done');
-  if(!stillOpen && ['repair','bodywork','mot'].includes(v.status)){
-    v.status = 'ready';
-  }
-  saveDB();
+  if(!stillOpen && ['repair','bodywork','mot'].includes(v.status)) v.status = 'ready';
+  saveDB(); closeModal();
   if(activeVehicleId===vId && currentTab==='stock'){ renderVehicleDetail(); } else { render(); }
 }
+/* Filling in a cost that was skipped at the time. */
+function openPendingCost(vid, wid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const w = (v.works||[]).find(x=>x.id===wid); if(!w) return;
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Add the cost</h3>
+    <div class="small-muted" style="margin-bottom:12px;">${escapeHtml(w.title)} — done ${fmtDate(w.doneAt)}</div>
+    <div class="field"><label>Cost (£)</label><input id="pc_cost" type="number" step="0.01" value="${w.cost||''}" autofocus/></div>
+    <div class="field"><label>Note</label><textarea id="pc_note" rows="2">${escapeHtml(w.note||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="savePendingCost('${vid}','${wid}')">Save</button>
+    </div>`);
+}
+function savePendingCost(vid, wid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const w = (v.works||[]).find(x=>x.id===wid); if(!w) return;
+  const before = w.cost||0;
+  w.cost = Number(document.getElementById('pc_cost').value)||0;
+  w.note = document.getElementById('pc_note').value;
+  w.costPending = w.cost<=0;
+  const iss = (v.issues||[]).find(x=>x.id===w.issueId);
+  if(iss) iss.costPending = w.costPending;
+  logChange('cost','Added cost for work on', vehRef(v), w.type||'Work',
+    before?fmtMoney(before):'pending', fmtMoney(w.cost), w.title);
+  saveDB(); closeModal(); renderVehicleDetail();
+}
+function pendingCostCount(v){ return (v.works||[]).filter(w=>w.costPending).length; }
 
 /* =========================================================================
    STOCK
@@ -778,7 +850,7 @@ function renderStock(){
   <div class="toolbar">
     <input placeholder="Search reg, make or model…" value="${stockSearch}" oninput="stockSearch=this.value;render()" style="width:260px"/>
     <button class="btn btn-ghost btn-sm" onclick="exportStockCSV()">⬇ Export CSV</button>
-    ${isManager()?`<button class="btn btn-brand btn-sm" onclick="publishToWebsite()">🌐 Publish to website</button><button class="btn btn-ghost btn-sm" onclick="exportStockForWebsite()">⬇ stock.json</button><span class="small-muted">${DB.websitePublishedAt?`Last published ${fmtDate(DB.websitePublishedAt.slice(0,10))} · ${DB.websitePublishedCount||0} cars`:'Not published yet'}</span>`:''}
+    ${isManager()?`<button class="btn btn-ghost btn-sm" onclick="openSourcingCheck()">💷 Check a car before buying</button><button class="btn btn-brand btn-sm" onclick="publishToWebsite()">🌐 Publish to website</button>${isSuperAdmin()&&!DB.sheetImportedAt?`<button class="btn btn-ghost btn-sm" onclick="importPreview()">📥 Import stock sheet</button>`:''}<button class="btn btn-ghost btn-sm" onclick="exportStockForWebsite()">⬇ stock.json</button><span class="small-muted">${DB.websitePublishedAt?`Last published ${fmtDate(DB.websitePublishedAt.slice(0,10))} · ${DB.websitePublishedCount||0} cars`:'Not published yet'}</span>`:''}
   </div>
   <div class="card" style="padding:0;overflow:auto;">
     ${list.length===0? `<div class="empty"><div class="big">No vehicles here</div>Add your first vehicle by registration to get started.</div>` : `
@@ -793,7 +865,7 @@ function renderStock(){
         <td>${isMuzaribCar(v)?`<span class="tag tag-amber">${escapeHtml(muzaribName(v.muzaribId))}</span>`:'<span class="small-muted">Company</span>'}</td>
         <td><span class="tag ${statusTagClass(v.status)}">${statusLabel(v.status)}</span>${vehicleReservation(v.id)?' <span class="tag tag-purple">Reserved</span>':''}</td>
         <td onclick="event.stopPropagation();leadVehicleFilter='${v.id}';leadView='list';leadFilter='all';App.go('leads')">${(()=>{const a=activeLeadsForVehicle(v.id).length,t=leadsForVehicle(v.id).length;return t?`<span class="tag ${a?'tag-brand':'tag-grey'}" title="${a} active of ${t} total">${a} / ${t}</span>`:(v.status==='sold'?'—':'<span class="small-muted">0</span>');})()}</td>
-        <td>${openIss>0?`<span class="tag tag-red">${openIss} open</span>`:'<span class="tag tag-green">Clear</span>'}</td>
+        <td>${pendingCostCount(v)?`<span class="tag tag-amber" title="Finished work with no cost recorded">£?</span> `:''}${openIss>0?`<span class="tag tag-red">${openIss} open</span>`:'<span class="tag tag-green">Clear</span>'}</td>
         <td>${fmtMoney(cost)}</td>
         <td>${v.sale? fmtMoney(v.sale.salePrice)+' (sold)': fmtMoney(v.askingPrice)}</td>
         <td style="color:${margin>=0?'var(--green)':'var(--red)'};font-weight:700">${fmtMoney(margin)}</td>
@@ -872,11 +944,39 @@ async function publishToWebsite(){
           '\n\nIf this is the first time, the public_stock table may not be set up yet — see the website setup guide.');
   }
 }
+async function refreshVehicleData(vid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  if(!LOOKUP_URL){ alert('Lookup is not set up yet. See LOOKUP-SETUP.md.'); return; }
+  try{
+    const res = await fetch(LOOKUP_URL, {method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_ANON_KEY},
+      body: JSON.stringify({registration: normaliseReg(v.reg)})});
+    const d = await res.json();
+    if(!res.ok || d.error) throw new Error(d.error||'Lookup failed');
+    const fill = [];
+    const maybe = (key, val, label) => {
+      if(val!=null && val!=='' && !v[key]){ v[key]=val; fill.push(label); }
+    };
+    maybe('make', d.make, 'make'); maybe('model', d.model, 'model');
+    maybe('year', d.year, 'year'); maybe('color', d.colour, 'colour');
+    maybe('fuel', d.fuel, 'fuel'); maybe('engine', d.engineLitres, 'engine size');
+    maybe('mileage', d.mileage, 'mileage');
+    if(d.motExpiry) v.motExpiry = d.motExpiry;
+    saveDB(); renderVehicleDetail();
+    alert(fill.length
+      ? 'Filled in: ' + fill.join(', ') + '.\n\nExisting details were left as they were.'
+      : 'Nothing new to add — the details already on file were kept.');
+  }catch(e){ alert('Could not refresh: ' + (e.message||e)); }
+}
 function setVehicleOwner(vid, val){
   const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
   if(v.sale && !confirm('This car has already been sold. Changing who funded it will move the settlement to a different account.\n\nContinue?')) { render(); return; }
+  const wasOwner = isMuzaribCar(v) ? muzaribName(v.muzaribId) : 'Company stock';
   if(val.startsWith('mz:')){ v.ownerType='muzarib'; v.muzaribId = val.slice(3); }
   else { v.ownerType='company'; v.muzaribId = null; }
+  const nowOwner = isMuzaribCar(v) ? muzaribName(v.muzaribId) : 'Company stock';
+  logChange('muzarib','Moved car', vehRef(v), 'Funded by', wasOwner, nowOwner,
+    fmtMoney(vehicleCostTotal(v)) + ' of value moved between accounts');
   saveDB(); renderVehicleDetail();
 }
 function exportStockCSV(){
@@ -898,7 +998,13 @@ function openAddVehicle(){
     <button class="close-x" onclick="closeModal()">✕</button>
     <h3>Add vehicle</h3>
     <div class="field-row">
-      <div class="field"><label>Registration *</label><input id="f_reg" style="text-transform:uppercase" placeholder="e.g. LP19 KFX"/></div>
+      <div class="field"><label>Registration *</label>
+        <div style="display:flex;gap:6px;">
+          <input id="f_reg" style="text-transform:uppercase;flex:1;" placeholder="e.g. LP19 KFX"/>
+          <button class="btn btn-ghost" id="f_lookupBtn" onclick="lookupReg(document.getElementById('f_reg').value,'f')" style="white-space:nowrap;">🔍 Look up</button>
+        </div>
+        <div id="f_lookupInfo" class="small-muted" style="display:none;margin-top:6px;background:var(--paper);padding:8px 10px;border-radius:8px;"></div>
+      </div>
       <div class="field"><label>Status</label>
         <select id="f_status"><option value="repair">Needs repair</option><option value="mot">Needs MOT</option><option value="bodywork">Needs bodywork</option><option value="ready">Ready to sell</option><option value="scrap">Scrap</option></select>
       </div>
@@ -960,7 +1066,11 @@ function saveNewVehicle(){
     checklist: CHECKLIST_TEMPLATE.map(name=>({name, ok:false, note:''})),
     issues:[], photos:[], invoicePhotoIds:[], sale:null
   };
-  DB.vehicles.push(v); saveDB(); closeModal(); openVehicle(v.id);
+  DB.vehicles.push(v);
+  logChange('stock','Added to stock', vehRef(v), '', '', '',
+    (v.ownerType==='muzarib' ? 'Funded by ' + muzaribName(v.muzaribId) : 'Company stock') +
+    (Number((v.costs||{}).purchase) ? ' · purchase ' + fmtMoney(v.costs.purchase) : ''));
+  saveDB(); closeModal(); openVehicle(v.id);
 }
 
 let activeVehicleId = null, activeVehicleTab='overview';
@@ -976,6 +1086,7 @@ async function renderVehicleDetail(){
   const margin = v.sale? vehicleProfit(v) : (Number(v.askingPrice)||0)-cost;
 
   const tabs = [['overview','Overview'],['issues','Issues & Photos'+(openIssuesCount(v)?` (${openIssuesCount(v)})`:'')],['checklist','Vehicle check'],['costs','Cost & invoice'],['leads', 'Leads'+(leadsForVehicle(v.id).length?` (${leadsForVehicle(v.id).length})`:'')],['sale', v.sale?'Sale record':'Mark as sold']];
+  if(isManager()) tabs.push(['history','History']);
 
   let inner = '';
   if(activeVehicleTab==='overview') inner = vehicleOverviewTab(v,cost,margin);
@@ -983,6 +1094,7 @@ async function renderVehicleDetail(){
   else if(activeVehicleTab==='checklist') inner = vehicleChecklistTab(v);
   else if(activeVehicleTab==='costs') inner = await vehicleCostsTab(v,cost);
   else if(activeVehicleTab==='leads') inner = vehicleLeadsTab(v);
+  else if(activeVehicleTab==='history') inner = vehicleHistoryTab(v);
   else if(activeVehicleTab==='sale') inner = vehicleSaleTab(v);
 
   document.getElementById('main').innerHTML = `
@@ -1029,6 +1141,7 @@ function vehicleOverviewTab(v,cost,margin){
       <div class="field"><label>Body</label><select onchange="updateVehicleField('${v.id}','body',this.value)">${['','Hatchback','Saloon','Estate','SUV','MPV','Coupe','Convertible','Van'].map(f=>`<option ${((v.body||'')===f)?'selected':''}>${f}</option>`).join('')}</select></div>
     </div>
     <div class="field-row">
+      <div class="field"><label>Variant / trim</label><input value="${v.variant||''}" placeholder="e.g. 1.0 EcoBoost Zetec" onchange="updateVehicleField('${v.id}','variant',this.value)"/></div>
       <div class="field"><label>Engine</label><input value="${v.engine||''}" placeholder="e.g. 1.0L" onchange="updateVehicleField('${v.id}','engine',this.value)"/></div>
       <div class="field"><label>Doors</label><input value="${v.doors||''}" onchange="updateVehicleField('${v.id}','doors',this.value)"/></div>
     </div>
@@ -1048,17 +1161,42 @@ function vehicleOverviewTab(v,cost,margin){
             : `${fmtMoney(vehicleCostTotal(v))} of their capital is in this car. At the asking price of ${fmtMoney(v.askingPrice)},
                they would receive about <b>${fmtMoney(Math.max(0,((Number(v.askingPrice)||0)-vehicleCostTotal(v)-(m.adminCharge??500)))*(Number(m.splitPct??50)/100))}</b>.`}
         </div></div>`;})():''}
+    ${isManager()?retailCheckPanel(v):''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn btn-ghost btn-sm" onclick="refreshVehicleData('${v.id}')">🔍 Fill details from registration</button>
+      ${v.motExpiry?`<span class="tag ${isOverdue(v.motExpiry)?'tag-red':'tag-grey'}">MOT expires ${fmtDate(v.motExpiry)}</span>`:''}
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Engine code</label>
+        <div style="display:flex;gap:6px;">
+          <input value="${v.engineCode||''}" placeholder="e.g. B16DTH" onchange="updateVehicleField('${v.id}','engineCode',this.value)" style="flex:1;"/>
+          <button class="btn btn-ghost btn-sm" onclick="findEngineCode('${v.id}')" style="white-space:nowrap;">Find</button>
+        </div>
+        <div class="small-muted" style="margin-top:4px;">No database returns this from a registration — look it up, then paste it here for ordering parts.</div>
+      </div>
+      <div class="field"><label>VIN</label><input value="${v.vin||''}" onchange="updateVehicleField('${v.id}','vin',this.value)"/></div>
+    </div>
     <div class="field"><label>Website description <span class="small-muted">— shown to customers on your website</span></label>
       <textarea rows="3" placeholder="e.g. Full service history, recently serviced with a fresh MOT. Cheap to insure and very economical." onchange="updateVehicleField('${v.id}','webDescription',this.value)">${v.webDescription||''}</textarea></div>
     ${isManager()?`<button class="btn btn-danger btn-sm" onclick="deleteVehicle('${v.id}')">Delete vehicle</button>`:''}
   </div>`;
 }
 function updateVehicleField(id, field, value){
-  const v = DB.vehicles.find(x=>x.id===id); v[field]=value; saveDB();
+  const v = DB.vehicles.find(x=>x.id===id); if(!v) return;
+  const before = v[field];
+  v[field]=value;
+  if(LOGGED_VEHICLE_FIELDS[field]){
+    const fmt = x => field==='askingPrice' ? fmtMoney(x) : (field==='status' ? statusLabel(x) : x);
+    logChange('stock','Edited', vehRef(v), LOGGED_VEHICLE_FIELDS[field], fmt(before), fmt(value));
+  }
+  saveDB();
 }
 function deleteVehicle(id){
   if(!isManager()) return;
   if(!confirm('Delete this vehicle and all its records? This cannot be undone.')) return;
+  const v = DB.vehicles.find(x=>x.id===id);
+  if(v) logChange('stock','Deleted vehicle', vehRef(v), '', '', '',
+    'Cost was ' + fmtMoney(vehicleCostTotal(v)) + (isMuzaribCar(v) ? ' · funded by ' + muzaribName(v.muzaribId) : ''));
   DB.vehicles = DB.vehicles.filter(x=>x.id!==id); saveDB(); App.go('stock');
 }
 
@@ -1073,6 +1211,7 @@ async function vehicleIssuesTab(v){
   <div class="card" style="margin-bottom:16px;">
     <div class="flex-between"><h3 style="margin:0">General photos</h3>
       <label class="btn btn-sm btn-ghost" style="cursor:pointer;">+ Upload photo<input type="file" accept="image/*" style="display:none" onchange="uploadVehiclePhoto('${v.id}', this)"/></label>
+      <button class="btn btn-sm btn-ghost" onclick="openMediaGuide('vehicle')">📷 Photo guide</button>
     </div>
     <div class="photo-row">${photosHtml || '<span class="small-muted">No general photos yet.</span>'}</div>
   </div>
@@ -1193,7 +1332,8 @@ function issueSourceLinksHtml(i){
 async function uploadVehiclePhoto(vId, input){
   const file = input.files[0]; if(!file) return;
   const v = DB.vehicles.find(x=>x.id===vId);
-  const blob = await compressImage(file);
+  // Car photos go on the website, so keep them large enough to look sharp there.
+  const blob = await compressImage(file, 1600, 0.82);
   const res = await storePhoto(blob);
   if(!res.ref){ alert("The photo couldn't be saved. Error: " + (res.error||'unknown')); return; }
   if(!v.photos) v.photos=[];
@@ -1263,16 +1403,37 @@ async function vehicleCostsTab(v, cost){
     invHtml += `<div class="photo-cell">${thumb}<button class="rm" onclick="removeInvoicePhoto('${v.id}',${idx})">✕</button></div>`;
   });
   const fields = [['purchase','Purchase price'],['delivery','Delivery cost'],['service','Service'],['mot','MOT'],['bodywork','Bodywork'],['mechanical','Mechanical repair'],['autotrader','AutoTrader boost'],['fuel','Fuel'],['other','Other']];
+  const baseTotal = fields.reduce((s,[k])=>s+(Number(c[k])||0),0);
   return `
   <div class="card" style="margin-bottom:16px;">
     <h3 style="margin-top:0">Cost breakdown</h3>
     <div class="cost-grid">
       ${fields.map(([k,l])=>`<div class="field"><label>${l} (£)</label><input type="number" value="${c[k]||0}" onchange="updateCost('${v.id}','${k}',Number(this.value))"/></div>`).join('')}
     </div>
-    <div class="flex-between" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px;">
-      <span style="font-weight:700;">Total cost to date</span><span style="font-weight:700;font-size:18px;">${fmtMoney(cost)}</span>
-    </div>
   </div>
+
+  ${partsSection(v)}
+  ${worksSection(v)}
+
+  <div class="card" style="margin-bottom:16px;">
+    <h3 style="margin-top:0">Notes on this car's costs</h3>
+    <textarea rows="3" placeholder="Anything worth explaining — why a repair cost what it did, what's still to come, what you agreed with the garage."
+      onchange="updateCostNote('${v.id}',this.value)">${escapeHtml(v.costNote||'')}</textarea>
+
+    <table style="margin-top:14px;">
+      <tr><td>Costs above</td><td>${fmtMoney(baseTotal)}</td></tr>
+      <tr><td>Parts</td><td>${fmtMoney(partsTotal(v))}</td></tr>
+      <tr><td>Mechanical &amp; repair work</td><td>${fmtMoney(worksTotal(v))}</td></tr>
+      ${pendingCostCount(v)?`<tr><td colspan="2" style="color:var(--amber)">⚠ ${pendingCostCount(v)} finished job${pendingCostCount(v)===1?'':'s'} still without a cost — total is understated</td></tr>`:''}
+      <tr style="border-top:2px solid var(--ink)">
+        <td style="font-weight:700;font-size:16px;">Total cost to date</td>
+        <td style="font-weight:700;font-size:18px;">${fmtMoney(cost)}</td></tr>
+      ${v.askingPrice?`<tr><td>Margin at asking price ${fmtMoney(v.askingPrice)}</td>
+        <td style="font-weight:700;color:${((Number(v.askingPrice)||0)-cost)>=0?'var(--green)':'var(--red)'}">${fmtMoney((Number(v.askingPrice)||0)-cost)}</td></tr>`:''}
+    </table>
+  </div>
+  ${workHistorySection(v)}
+
   <div class="card">
     <div class="flex-between"><h3 style="margin:0">Purchase invoice</h3>
       <label class="btn btn-sm btn-ghost" style="cursor:pointer;">+ Upload invoice (photo or PDF)<input type="file" accept="image/*,application/pdf" style="display:none" onchange="uploadInvoice('${v.id}', this)"/></label>
@@ -1280,7 +1441,16 @@ async function vehicleCostsTab(v, cost){
     <div class="photo-row">${invHtml || '<span class="small-muted">No invoice uploaded yet.</span>'}</div>
   </div>`;
 }
-function updateCost(vId, key, val){ const v=DB.vehicles.find(x=>x.id===vId); v.costs[key]=val; saveDB(); renderVehicleDetail(); }
+function updateCost(vId, key, val){
+  const v=DB.vehicles.find(x=>x.id===vId); if(!v) return;
+  const before = Number(v.costs[key])||0, after = Number(val)||0;
+  v.costs[key]=val;
+  if(before!==after){
+    const note = isMuzaribCar(v) ? 'Investor car — ' + muzaribName(v.muzaribId) : '';
+    logChange('cost','Changed cost on', vehRef(v), COST_LABELS[key]||key, fmtMoney(before), fmtMoney(after), note);
+  }
+  saveDB(); renderVehicleDetail();
+}
 async function uploadInvoice(vId, input){
   const file = input.files[0]; if(!file) return;
   const v = DB.vehicles.find(x=>x.id===vId);
@@ -1375,6 +1545,7 @@ function confirmSale(vId){
   const v = DB.vehicles.find(x=>x.id===vId);
   const customerId = document.getElementById('s_customer').value;
   if(!customerId){ alert('Select or add a customer first'); return; }
+  const wasSold = !!v.sale, prevSale = v.sale ? {...v.sale} : null;
   v.sale = {
     customerId, date: document.getElementById('s_date').value,
     salePrice: Number(document.getElementById('s_price').value)||0,
@@ -1387,6 +1558,9 @@ function confirmSale(vId){
     extraPackage: Number(document.getElementById('s_extra').value)||0,
   };
   v.status='sold';
+  logChange('sale', wasSold?'Edited sale of':'Recorded sale of', vehRef(v), 'Sale price',
+    wasSold?fmtMoney(prevSale.salePrice):'', fmtMoney(v.sale.salePrice),
+    'Profit ' + fmtMoney(vehicleProfit(v)) + (isMuzaribCar(v) ? ' · investor ' + muzaribName(v.muzaribId) + ' receives ' + fmtMoney(carSettlement(v).investor) : ''));
   saveDB();
   renderVehicleDetail();
   if(v.sale.partExValue>0 && confirm('Add the part-exchange vehicle to stock now?')){
@@ -1402,7 +1576,11 @@ function confirmSale(vId){
 }
 function undoSale(vId){
   if(!confirm('Undo this sale? The vehicle will return to stock.')) return;
-  const v = DB.vehicles.find(x=>x.id===vId); v.sale=null; v.status='ready'; saveDB(); renderVehicleDetail();
+  const v = DB.vehicles.find(x=>x.id===vId);
+  const wasPrice = v.sale ? v.sale.salePrice : 0;
+  logChange('sale','Undid sale of', vehRef(v), 'Sale price', fmtMoney(wasPrice), 'removed',
+    isMuzaribCar(v) ? 'Reversed the settlement for ' + muzaribName(v.muzaribId) : '');
+  v.sale=null; v.status='ready'; saveDB(); renderVehicleDetail();
 }
 function printInvoice(vId){
   const v = DB.vehicles.find(x=>x.id===vId); const s=v.sale;
@@ -1589,6 +1767,8 @@ function expensePaidAmount(e){
 }
 function expenseBalance(e){ return Math.max(0, (Number(e.amount)||0) - expensePaidAmount(e)); }
 function expenseStatusLabel(e){
+  // Spent from the company's own money — nothing to reimburse.
+  if(e.fundedBy==='float') return 'float';
   const bal = expenseBalance(e);
   if(bal<=0) return 'paid';
   if(expensePaidAmount(e)>0) return 'partial';
@@ -1653,6 +1833,8 @@ function renderTeamOverview(){
   </div>
 
   ${summaryHtml}
+
+  ${floatSection()}
 
   <div class="section-title"><h2>Company spend by staff</h2>
     <button class="btn btn-amber btn-sm" onclick="openAddExpense()">+ Log my spend</button>
@@ -1733,6 +1915,8 @@ function changeAccessLevel(id, level){
     const others = DB.team.filter(x=>x.id!==id && normaliseRole(x.accessLevel)==='superadmin').length;
     if(others===0){ alert('There must be at least one Super Admin. Promote someone else first.'); render(); return; }
   }
+  logChange('team','Changed access for', {id:m.id,label:m.name}, 'Access level',
+    roleLabel(normaliseRole(m.accessLevel)), roleLabel(normaliseRole(level)));
   m.accessLevel = normaliseRole(level); saveDB(); render();
 }
 function openAddTeamMember(){
@@ -1761,7 +1945,15 @@ function deleteTeamMember(id){
 
 function openAddExpense(){
   openModal(`<button class="close-x" onclick="closeModal()">✕</button><h3>Log my spend</h3>
-    <div class="small-muted" style="margin-bottom:10px;">Logged as <strong>${currentUserName}</strong> — for fuel, parts, or anything paid from your own pocket to be reimbursed.</div>
+    <div class="small-muted" style="margin-bottom:10px;">Logged as <strong>${currentUserName}</strong> — fuel, parts, or anything you've paid for.</div>
+    ${(()=>{ const f = floatPosition(currentUserEmail);
+      return `<div class="field"><label>Whose money was it?</label>
+        <select id="e_funded">
+          <option value="own">My own money &mdash; company to pay me back</option>
+          <option value="float" ${f.balance>0?'selected':''}>Money the company gave me${f.balance>0?` (${fmtMoney(f.balance)} left)`:''}</option>
+        </select>
+        ${f.balance>0?`<div class="small-muted" style="margin-top:6px;">You're holding ${fmtMoney(f.balance)} of company money.</div>`:''}
+      </div>`;})()}
     <div class="field-row">
       <div class="field"><label>Date</label><input id="e_date" type="date" value="${todayISO()}"/></div>
       <div class="field"><label>Amount (£)</label><input id="e_amount" type="number"/></div>
@@ -1771,7 +1963,14 @@ function openAddExpense(){
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-brand" onclick="saveExpense()">Log spend</button></div>`);
 }
 async function saveExpense(){
-  const expense = {id:nextId('exp'), employee:currentUserName, userEmail:currentUserEmail, date:document.getElementById('e_date').value, amount:Number(document.getElementById('e_amount').value)||0, note:document.getElementById('e_note').value, status:'owed', paidAmount:0, payments:[], photoId:null};
+  const funded = (document.getElementById('e_funded')||{value:'own'}).value;
+  const expense = {id:nextId('exp'), employee:currentUserName, userEmail:currentUserEmail,
+    date:document.getElementById('e_date').value, amount:Number(document.getElementById('e_amount').value)||0,
+    note:document.getElementById('e_note').value,
+    fundedBy: funded,
+    // Spends from the company float aren't owed back — they come off the float instead.
+    status: funded==='float' ? 'float' : 'owed',
+    paidAmount:0, payments:[], photoId:null};
   const file = document.getElementById('e_photo').files[0];
   DB.expenses.push(expense); saveDB(); closeModal(); render();
   if(file){
@@ -1805,11 +2004,16 @@ function saveExpensePayment(id){
   e.payments.push({date:document.getElementById('pay_date').value, amount, method:document.getElementById('pay_method').value});
   e.paidAmount = expensePaidAmount(e) + amount;
   e.status = e.paidAmount >= Number(e.amount) ? 'paid' : 'partial';
+  logChange('money','Repaid staff spend to', {id:e.id, label:(e.userName||e.user||'staff')}, 'Paid',
+    '', fmtMoney(amount),
+    (e.description||e.note||'') + ' · balance now ' + fmtMoney(expenseBalance(e)));
   saveDB(); closeModal(); render();
 }
 function deleteExpense(id){
   const e = DB.expenses.find(x=>x.id===id);
   if(!isManager() && e.userEmail!==currentUserEmail) return;
+  logChange('money','Deleted logged spend by', {id:e.id, label:(e.userName||e.user||'staff')}, '', '', '',
+    fmtMoney(e.amount) + ' · ' + (e.description||e.note||''));
   DB.expenses=DB.expenses.filter(x=>x.id!==id); saveDB(); render();
 }
 function viewExpensePhoto(ref){ const url = getPhotoUrl(ref); if(url) window.open(url); }
@@ -1848,10 +2052,20 @@ function savePayroll(){
   const sel = document.getElementById('p_emp');
   const employee = sel.value; if(!employee){alert('Add a team member first');return;}
   const userEmail = sel.selectedOptions[0].dataset.email || null;
-  DB.payroll.push({id:nextId('pay'), employee, userEmail, period:document.getElementById('p_period').value, daysWorked:Number(document.getElementById('p_days').value)||0, dayRate:Number(document.getElementById('p_rate').value)||0, deductions:Number(document.getElementById('p_ded').value)||0, cashPaid:Number(document.getElementById('p_cash').value)||0, bankPaid:Number(document.getElementById('p_bank').value)||0});
+  const rec = {id:nextId('pay'), employee, userEmail, period:document.getElementById('p_period').value, daysWorked:Number(document.getElementById('p_days').value)||0, dayRate:Number(document.getElementById('p_rate').value)||0, deductions:Number(document.getElementById('p_ded').value)||0, cashPaid:Number(document.getElementById('p_cash').value)||0, bankPaid:Number(document.getElementById('p_bank').value)||0};
+  DB.payroll.push(rec);
+  logChange('money','Added payroll for', {id:rec.id, label:employee}, 'Paid', '',
+    fmtMoney((rec.cashPaid||0)+(rec.bankPaid||0)),
+    rec.period + ' · ' + rec.daysWorked + ' days' + (rec.deductions?' · deductions '+fmtMoney(rec.deductions):''));
   saveDB(); closeModal(); render();
 }
-function deletePayroll(id){ if(!isManager()) return; DB.payroll=DB.payroll.filter(x=>x.id!==id); saveDB(); render(); }
+function deletePayroll(id){
+  if(!isManager()) return;
+  const r = DB.payroll.find(x=>x.id===id);
+  if(r) logChange('money','Deleted payroll for', {id:r.id, label:r.employee}, '', '', '',
+    (r.period||'') + ' · ' + fmtMoney((r.cashPaid||0)+(r.bankPaid||0)));
+  DB.payroll=DB.payroll.filter(x=>x.id!==id); saveDB(); render();
+}
 
 /* =========================================================================
    CUSTOMERS
@@ -2908,12 +3122,10 @@ function carSettlement(v){
   const cost = vehicleCostTotal(v);
   if(!v.sale) return {sold:false, cost, gross:0, admin:0, net:0, investor:0, company:0};
   const gross = vehicleProfit(v);
-  let admin;
-  const policy = m.adminOnLoss || 'cap';
-  if(policy === 'always')      admin = adminRate;
-  else if(policy === 'waive')  admin = gross > 0 ? Math.min(adminRate, gross) : 0;
-  else /* cap */               admin = gross > 0 ? Math.min(adminRate, gross) : 0;
-  if(policy === 'always') admin = adminRate;
+  // The admin charge is fixed and always taken, whether the car made money or
+  // lost it. On a thin or loss-making car it deepens the loss, and that loss
+  // is then shared in the same proportion as a profit would be.
+  const admin = adminRate;
   const net = gross - admin;
   const investor = net * split;
   const company = admin + (net - investor);
@@ -3173,13 +3385,10 @@ function openMuzaribForm(id){
       <div class="field"><label>Investor's share of net (%)</label><input id="mz_split" type="number" value="${m?(m.splitPct??50):50}"/></div>
       <div class="field"><label>Prep reserve (%)</label><input id="mz_reserve" type="number" value="${m?(m.reservePct??10):10}"/></div>
     </div>
-    <div class="field"><label>If a car makes less than the admin charge</label>
-      <select id="mz_policy">
-        <option value="cap" ${(!m||m.adminOnLoss!=='always'&&m.adminOnLoss!=='waive')?'selected':''}>Take only what the margin allows (recommended)</option>
-        <option value="waive" ${m&&m.adminOnLoss==='waive'?'selected':''}>Waive the admin charge</option>
-        <option value="always" ${m&&m.adminOnLoss==='always'?'selected':''}>Always take the full charge</option>
-      </select>
-      <div class="small-muted" style="margin-top:6px;">On a loss-making car the remaining loss is shared in the same proportion as profit.</div></div>
+    <div class="card" style="box-shadow:none;background:var(--brand-dim);padding:12px;margin-bottom:12px;">
+      <div style="font-weight:700;margin-bottom:4px;">How each car settles</div>
+      <div class="small-muted">The admin charge is taken on <b>every</b> car, whether it made money or
+      lost it. What's left after it — profit or loss — is then shared in the proportion above.</div></div>
     ${m?`<div class="field"><label>Status</label><select id="mz_active"><option value="yes" ${m.active!==false?'selected':''}>Active</option><option value="no" ${m.active===false?'selected':''}>Inactive</option></select></div>`:''}
     <div class="field"><label>Notes</label><textarea id="mz_notes" rows="2">${m?escapeHtml(m.notes||''):''}</textarea></div>
     ${m?'':`<div class="field"><label>Opening capital (£)</label><input id="mz_open" type="number" placeholder="e.g. 20000"/>
@@ -3200,7 +3409,6 @@ function saveMuzarib(id){
     adminCharge: Number(document.getElementById('mz_admin').value)||0,
     splitPct: Math.min(100, Math.max(0, Number(document.getElementById('mz_split').value)||0)),
     reservePct: Math.min(90, Math.max(0, Number(document.getElementById('mz_reserve').value)||0)),
-    adminOnLoss: document.getElementById('mz_policy').value,
     notes: document.getElementById('mz_notes').value
   };
   if(!DB.muzaribs) DB.muzaribs = [];
@@ -3208,10 +3416,20 @@ function saveMuzarib(id){
   if(id){
     const m = muzarib(id); if(!m) return;
     const act = document.getElementById('mz_active');
+    // Terms affect every future settlement, so record any change to them.
+    [['adminCharge','Admin charge',true],['splitPct','Investor share %',false],
+     ['reservePct','Prep reserve %',false]].forEach(([k,lbl,isMoney])=>{
+      const b = m[k], a2 = data[k];
+      if(String(b)!==String(a2))
+        logChange('muzarib','Changed terms for', mzRef(m), lbl,
+          isMoney?fmtMoney(b||0):String(b==null?'':b), isMoney?fmtMoney(a2||0):String(a2));
+    });
     Object.assign(m, data, act ? {active: act.value==='yes'} : {});
   } else {
     const m = {id: nextId('mz'), ...data, active:true, startDate: todayISO()};
     DB.muzaribs.push(m);
+    logChange('muzarib','Added investor', mzRef(m), '', '', '',
+      fmtMoney(data.adminCharge)+' admin · '+data.splitPct+'% share');
     const open = Number(document.getElementById('mz_open').value)||0;
     if(open>0) DB.muzaribTx.push({id:nextId('mztx'), muzaribId:m.id, type:'capital', amount:open,
       date: todayISO(), note:'Opening capital', method:'', addedBy:currentUserName});
@@ -3224,6 +3442,9 @@ function deleteMuzarib(id){
   const cars = muzaribCars(id);
   if(cars.length){ alert(`This investor still has ${cars.length} car${cars.length===1?'':'s'} linked.\n\nReassign or remove those cars first.`); return; }
   if(!confirm('Delete this investor and their cash history?')) return;
+  const gone = muzarib(id);
+  if(gone) logChange('muzarib','Deleted investor', mzRef(gone), '', '', '',
+    'Cash was ' + fmtMoney(muzaribPosition(id).cash));
   DB.muzaribs = muzaribs().filter(m=>m.id!==id);
   DB.muzaribTx = (DB.muzaribTx||[]).filter(t=>t.muzaribId!==id);
   activeMuzaribId = null; saveDB(); closeModal(); render();
@@ -3255,16 +3476,24 @@ function saveMzTx(id, type){
     if(amt > p.cash && !confirm(`This is more than the ${fmtMoney(p.cash)} cash available.\n\nRecord it anyway? The balance will go negative.`)) return;
   }
   if(!DB.muzaribTx) DB.muzaribTx = [];
+  const method = document.getElementById('mtx_method').value;
+  const note = document.getElementById('mtx_note').value.trim();
   DB.muzaribTx.push({id:nextId('mztx'), muzaribId:id, type, amount:amt,
     date: document.getElementById('mtx_date').value || todayISO(),
-    method: document.getElementById('mtx_method').value,
-    note: document.getElementById('mtx_note').value.trim(), addedBy: currentUserName});
+    method, note, addedBy: currentUserName});
+  const m = muzarib(id);
+  logChange('money', type==='withdrawal'?'Recorded withdrawal for':'Added capital for', mzRef(m),
+    MZ_TX_TYPES[type].label, '', fmtMoney(amt),
+    method + (note?' · '+note:'') + ' · cash now ' + fmtMoney(muzaribPosition(id).cash));
   saveDB(); closeModal(); render();
 }
 function deleteMzTx(txId){
   if(!isSuperAdmin()) return;
   if(!confirm('Delete this entry?')) return;
-  DB.muzaribTx = (DB.muzaribTx||[]).filter(t=>t.id!==txId);
+  const t = (DB.muzaribTx||[]).find(x=>x.id===txId);
+  if(t) logChange('money','Deleted cash entry for', mzRef(muzarib(t.muzaribId)||{id:t.muzaribId,name:'Unknown'}),
+    MZ_TX_TYPES[t.type].label, fmtMoney(t.amount), '', 'Dated ' + fmtDate(t.date));
+  DB.muzaribTx = (DB.muzaribTx||[]).filter(t2=>t2.id!==txId);
   saveDB(); render();
 }
 
@@ -3308,9 +3537,1803 @@ function printMuzaribStatement(id){
   </body></html>`);
   w.document.close(); w.print();
 }
+
 /* =========================================================================
-   MODAL HELPERS
+   AUDIT LOG — who changed what, and when.
+   Records money-affecting and ownership changes so a Super Admin can see
+   exactly what staff did. Kept to the most recent MAX_AUDIT entries so the
+   saved record doesn't grow without limit.
    ========================================================================= */
+const MAX_AUDIT = 3000;
+const AUDIT_AREAS = {
+  stock:   {label:'Stock',     tag:'tag-brand'},
+  cost:    {label:'Costs',     tag:'tag-amber'},
+  sale:    {label:'Sales',     tag:'tag-green'},
+  muzarib: {label:'Muzaribat', tag:'tag-purple'},
+  team:    {label:'Team',      tag:'tag-blue'},
+  money:   {label:'Money',     tag:'tag-red'}
+};
+
+function logChange(area, action, ref, field, from, to, note){
+  if(!DB.audit) DB.audit = [];
+  // Ignore no-op edits so the log stays readable.
+  const same = (a,b)=> (a==null?'':String(a)) === (b==null?'':String(b));
+  if(field && same(from,to)) return;
+  DB.audit.push({
+    id: nextId('log'),
+    at: new Date().toISOString(),
+    user: currentUserName || '',
+    email: currentUserEmail || '',
+    role: currentUserRole,
+    area, action,
+    refId: ref && ref.id ? ref.id : (ref||null),
+    refLabel: ref && ref.label ? ref.label : (typeof ref==='string' ? ref : ''),
+    field: field||'', from: from==null?'':String(from), to: to==null?'':String(to),
+    note: note||''
+  });
+  if(DB.audit.length > MAX_AUDIT) DB.audit = DB.audit.slice(-MAX_AUDIT);
+}
+const vehRef = v => ({id:v.id, label: v.reg + (v.make?' · '+[v.make,v.model].filter(Boolean).join(' '):'')});
+const mzRef  = m => ({id:m.id, label: m.name});
+
+/* Fields worth logging, with friendly names. */
+const LOGGED_VEHICLE_FIELDS = {
+  askingPrice:'Asking price', status:'Status', reg:'Registration', make:'Make', model:'Model',
+  year:'Year', mileage:'Mileage', color:'Colour', fuel:'Fuel', transmission:'Gearbox',
+  body:'Body', engine:'Engine', doors:'Doors'
+};
+const COST_LABELS = {
+  purchase:'Purchase price', delivery:'Delivery', service:'Service', mot:'MOT',
+  bodywork:'Bodywork', mechanical:'Mechanical', autotrader:'AutoTrader', fuel:'Fuel', other:'Other'
+};
+const isMoneyField = f => f==='askingPrice' || COST_LABELS[f];
+
+/* ---------- viewer (Super Admin only) ---------- */
+let auditArea = 'all', auditUser = 'all', auditSearch = '', auditDays = 30;
+
+function renderAudit(){
+  if(!isSuperAdmin()) return `<div class="card"><div class="empty"><div class="big">Super Admin only</div>
+    This log is restricted because it shows every change each person has made.</div></div>`;
+  const all = (DB.audit||[]).slice().reverse();
+  const cutoff = auditDays ? addDays(todayISO(), -auditDays) : '0000-01-01';
+  let rows = all.filter(e => (e.at||'').slice(0,10) >= cutoff);
+  if(auditArea!=='all') rows = rows.filter(e=>e.area===auditArea);
+  if(auditUser!=='all') rows = rows.filter(e=>e.user===auditUser);
+  if(auditSearch){
+    const q = auditSearch.toLowerCase();
+    rows = rows.filter(e => [e.refLabel,e.field,e.from,e.to,e.note,e.action,e.user].join(' ').toLowerCase().includes(q));
+  }
+  const users = [...new Set(all.map(e=>e.user).filter(Boolean))].sort();
+
+  // Quick summary of who's been changing money figures
+  const moneyEdits = rows.filter(e=>e.area==='cost' || (e.area==='stock' && e.field==='Asking price') || e.area==='money');
+  const byUser = {};
+  moneyEdits.forEach(e=>{ byUser[e.user] = (byUser[e.user]||0)+1; });
+
+  return `
+  <div class="topbar">
+    <div><h1>Change log</h1><div class="date">Every money and ownership change, and who made it</div></div>
+    <button class="btn btn-ghost" onclick="exportAuditCSV()">⬇ Export CSV</button>
+  </div>
+
+  <div class="grid kpi-grid">
+    <div class="card kpi"><div class="label">Changes shown</div><div class="value">${rows.length}</div>
+      <div class="sub">${auditDays?'Last '+auditDays+' days':'All time'}</div></div>
+    <div class="card kpi"><div class="label">Money edits</div><div class="value">${moneyEdits.length}</div>
+      <div class="sub">Costs, prices, cash</div></div>
+    <div class="card kpi"><div class="label">People active</div><div class="value">${Object.keys(byUser).length}</div>
+      <div class="sub">${Object.entries(byUser).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([u,n])=>escapeHtml(u)+' ('+n+')').join(', ')||'—'}</div></div>
+    <div class="card kpi"><div class="label">Total kept</div><div class="value">${(DB.audit||[]).length}</div>
+      <div class="sub">Oldest rolls off after ${MAX_AUDIT}</div></div>
+  </div>
+
+  <div class="toolbar">
+    <input placeholder="Search reg, person, value…" value="${escapeAttr(auditSearch)}" oninput="auditSearch=this.value;render()" style="flex:1;min-width:170px;"/>
+    <select onchange="auditArea=this.value;render()">
+      <option value="all" ${auditArea==='all'?'selected':''}>All areas</option>
+      ${Object.entries(AUDIT_AREAS).map(([k,v])=>`<option value="${k}" ${auditArea===k?'selected':''}>${v.label}</option>`).join('')}
+    </select>
+    <select onchange="auditUser=this.value;render()">
+      <option value="all" ${auditUser==='all'?'selected':''}>Everyone</option>
+      ${users.map(u=>`<option ${auditUser===u?'selected':''}>${escapeHtml(u)}</option>`).join('')}
+    </select>
+    <select onchange="auditDays=Number(this.value);render()">
+      <option value="7" ${auditDays===7?'selected':''}>Last 7 days</option>
+      <option value="30" ${auditDays===30?'selected':''}>Last 30 days</option>
+      <option value="90" ${auditDays===90?'selected':''}>Last 90 days</option>
+      <option value="0" ${auditDays===0?'selected':''}>All time</option>
+    </select>
+  </div>
+
+  ${rows.length===0 ? `<div class="card"><div class="empty"><div class="big">Nothing logged yet</div>
+    Changes to costs, prices, ownership, sales and investor cash will appear here.</div></div>` : `
+  <div class="card" style="padding:0;">
+    <table><thead><tr><th>When</th><th>Who</th><th>Area</th><th>What changed</th><th>From</th><th>To</th></tr></thead><tbody>
+    ${rows.slice(0,400).map(e=>`<tr ${e.refId&&e.area!=='muzarib'&&e.area!=='team'?`style="cursor:pointer" onclick="openVehicle('${e.refId}')"`:(e.area==='muzarib'&&e.refId?`style="cursor:pointer" onclick="openMuzarib('${e.refId}')"`:'')}>
+      <td style="white-space:nowrap;">${auditTime(e.at)}</td>
+      <td><b>${escapeHtml(e.user||'—')}</b>${e.role==='superadmin'?' <span class="tag tag-red">SA</span>':(e.role==='manager'?' <span class="tag tag-brand">M</span>':'')}</td>
+      <td><span class="tag ${(AUDIT_AREAS[e.area]||{}).tag||'tag-grey'}">${(AUDIT_AREAS[e.area]||{}).label||e.area}</span></td>
+      <td>${escapeHtml(e.action)}${e.refLabel?` <span class="mono">${escapeHtml(e.refLabel)}</span>`:''}${e.field?` — <b>${escapeHtml(e.field)}</b>`:''}${e.note?`<div class="small-muted">${escapeHtml(e.note)}</div>`:''}</td>
+      <td class="small-muted">${e.from!==''?escapeHtml(e.from):'—'}</td>
+      <td style="font-weight:600">${e.to!==''?escapeHtml(e.to):'—'}</td>
+    </tr>`).join('')}
+    </tbody></table>
+    ${rows.length>400?`<div class="small-muted" style="padding:10px;">Showing the most recent 400 of ${rows.length}. Narrow the filters or export to see the rest.</div>`:''}
+  </div>`}
+  `;
+}
+function auditTime(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + '<div class="small-muted">' +
+         d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + '</div>';
+}
+function exportAuditCSV(){
+  if(!isSuperAdmin()) return;
+  const rows = [['Date/time','User','Email','Role','Area','Action','Reference','Field','From','To','Note']];
+  (DB.audit||[]).slice().reverse().forEach(e=>rows.push([
+    new Date(e.at).toLocaleString('en-GB'), e.user, e.email, e.role,
+    (AUDIT_AREAS[e.area]||{}).label||e.area, e.action, e.refLabel, e.field, e.from, e.to, e.note]));
+  downloadCSV(rows, 'change-log.csv');
+}
+
+/* ---------- history for one vehicle ---------- */
+function vehicleHistoryTab(v){
+  const rows = (DB.audit||[]).filter(e=>e.refId===v.id).slice().reverse();
+  if(!isSuperAdmin() && !isManager())
+    return `<div class="card"><div class="empty">Only managers can view a vehicle's change history.</div></div>`;
+  return `<div class="card" style="padding:0;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--line);"><strong>Change history</strong>
+      <div class="small-muted">Every recorded change to this vehicle, newest first.</div></div>
+    ${rows.length ? `<table><thead><tr><th>When</th><th>Who</th><th>What</th><th>From</th><th>To</th></tr></thead><tbody>
+    ${rows.map(e=>`<tr>
+      <td style="white-space:nowrap;">${auditTime(e.at)}</td>
+      <td>${escapeHtml(e.user||'—')}</td>
+      <td>${escapeHtml(e.action)}${e.field?` — <b>${escapeHtml(e.field)}</b>`:''}${e.note?`<div class="small-muted">${escapeHtml(e.note)}</div>`:''}</td>
+      <td class="small-muted">${e.from!==''?escapeHtml(e.from):'—'}</td>
+      <td style="font-weight:600">${e.to!==''?escapeHtml(e.to):'—'}</td>
+    </tr>`).join('')}
+    </tbody></table>` : `<div class="empty">No changes recorded for this vehicle yet.</div>`}
+  </div>`;
+}
+
+/* =========================================================================
+   REGISTRATION LOOKUP
+   Pulls official vehicle data from DVLA (make, colour, fuel, year, engine
+   size) and DVSA (model and mileage history) so you don't type it by hand.
+   The API keys must stay secret, so requests go through a small function on
+   your own Supabase project — see LOOKUP-SETUP.md. Until that's set up the
+   button explains what's missing rather than failing silently.
+   ========================================================================= */
+const LOOKUP_URL = (typeof SUPABASE_URL === 'string' && SUPABASE_URL.indexOf('http') === 0)
+  ? SUPABASE_URL + '/functions/v1/vehicle-lookup' : '';
+
+let lastLookup = null;
+
+async function lookupReg(reg, targetPrefix){
+  const clean = normaliseReg(reg);
+  if(!clean){ alert('Enter a registration first.'); return; }
+  if(!LOOKUP_URL){ alert('Lookup is not set up yet. See LOOKUP-SETUP.md.'); return; }
+
+  const btn = document.getElementById(targetPrefix + '_lookupBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Looking up…'; }
+  try{
+    const res = await fetch(LOOKUP_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_ANON_KEY},
+      body: JSON.stringify({registration: clean})
+    });
+    const data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error || ('Lookup failed ('+res.status+')'));
+    lastLookup = data;
+    applyLookup(data, targetPrefix);
+  }catch(e){
+    console.error(e);
+    alert('Could not look that registration up.\n\n' + (e.message||e) +
+          '\n\nYou can still type the details in by hand.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '🔍 Look up'; }
+  }
+}
+
+/* Fills whichever form is open. Never overwrites something you've already
+   typed — it only fills blanks, so your own corrections always win. */
+function applyLookup(d, p){
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if(el && val != null && val !== '' && !el.value) el.value = val;
+  };
+  set(p+'_make', d.make);
+  set(p+'_model', d.model);
+  set(p+'_year', d.year);
+  set(p+'_color', d.colour);
+  set(p+'_mileage', d.mileage);
+  const fuelEl = document.getElementById(p+'_fuel');
+  if(fuelEl && d.fuel && !fuelEl.value) fuelEl.value = d.fuel;
+  const engEl = document.getElementById(p+'_engine');
+  if(engEl && d.engineLitres && !engEl.value) engEl.value = d.engineLitres;
+
+  const box = document.getElementById(p+'_lookupInfo');
+  if(box){
+    const bits = [];
+    if(d.motExpiry) bits.push('MOT expires <b>'+fmtDate(d.motExpiry)+'</b>');
+    if(d.taxStatus) bits.push('Tax: '+escapeHtml(d.taxStatus));
+    if(d.mileage) bits.push('Last MOT mileage <b>'+Number(d.mileage).toLocaleString('en-GB')+'</b>');
+    if(d.mileageAnomaly) bits.push('<b style="color:var(--red)">⚠ Mileage inconsistency in MOT history</b>');
+    if(d.co2) bits.push(d.co2+' g/km CO₂');
+    if(d.euroStatus) bits.push(escapeHtml(d.euroStatus));
+    box.style.display = '';
+    box.innerHTML = (bits.length ? bits.join(' &middot; ') : 'Found, but little detail held.') +
+      (d.partial ? '<div style="margin-top:4px;color:var(--amber)">Some sources were unavailable — check the details.</div>' : '') +
+      '<div style="margin-top:6px;color:var(--grey)">Official data is a guide, not a guarantee. Always check the car itself.</div>';
+  }
+}
+
+/* Engine code: no public API gives this from a registration, so this opens a
+   search with the details pre-filled and you paste the code back in. */
+function findEngineCode(vid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const q = [v.make, v.model, v.year, v.engine, 'engine code'].filter(Boolean).join(' ');
+  window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener');
+}
+function openEngineCentre(vid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  window.open('https://www.enginecentre.co.uk/', '_blank', 'noopener');
+}
+
+/* =========================================================================
+   RETAIL CHECK — Auto Trader valuations and market metrics.
+   Each call costs a few pence, so results are saved against the vehicle and
+   only refreshed when you ask. Nothing runs automatically.
+   ========================================================================= */
+function ratingColour(r){
+  if(r == null) return 'var(--grey)';
+  return r >= 70 ? 'var(--green)' : r >= 45 ? 'var(--amber)' : 'var(--red)';
+}
+function ratingWords(r){
+  if(r == null) return '';
+  return r >= 70 ? 'Sells well here' : r >= 45 ? 'Average demand' : 'Slow seller here';
+}
+/* Supply and demand come back as 0 to 1+, where higher demand is good but
+   higher supply means more competition. */
+function sdWords(v, kind){
+  if(v == null) return '—';
+  if(kind === 'supply') return v < 0.5 ? 'High supply' : v < 1 ? 'Moderate supply' : 'Limited supply';
+  if(kind === 'demand') return v < 0.5 ? 'Low demand'  : v < 1 ? 'Moderate demand' : 'Strong demand';
+  return v < 0.5 ? 'Poor market' : v < 1 ? 'Average market' : 'Good market';
+}
+
+async function runRetailCheck(vid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  if(!isManager()){ alert('Retail check is for managers.'); return; }
+  if(!LOOKUP_URL){ alert('Lookup is not set up yet. See LOOKUP-SETUP.md.'); return; }
+  const miles = Number(v.mileage) || 0;
+  if(!miles){ alert('Add the mileage first — the valuation is mileage-adjusted without it.'); return; }
+  if(v.retailCheck && !confirm('Refresh the retail check?\n\nEach check costs a few pence.')) return;
+
+  const btn = document.getElementById('rcBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Checking…'; }
+  try{
+    const res = await fetch(LOOKUP_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_ANON_KEY},
+      body: JSON.stringify({
+        registration: normaliseReg(v.reg),
+        retailCheck: true,
+        mileage: miles,
+        condition: v.condition != null ? v.condition : undefined,
+        price: Number(v.askingPrice) || undefined,
+        postcode: DB.dealerPostcode || undefined
+      })
+    });
+    const d = await res.json();
+    if(!res.ok || d.error) throw new Error(d.error || 'Retail check failed');
+    if(!d.retailCheck) throw new Error('Auto Trader returned no data for this vehicle. It may be too old, too new, or not a car.');
+    v.retailCheck = {...d.retailCheck, checkedAt: new Date().toISOString(), atMileage: miles, atPrice: Number(v.askingPrice)||0};
+    if(d.variant && !v.variant) v.variant = d.variant;
+    logChange('stock','Ran retail check on', vehRef(v), 'Retail valuation', '',
+      fmtMoney(v.retailCheck.retail||0), 'Rating ' + (v.retailCheck.rating??'—') + ' · ' +
+      (v.retailCheck.daysToSell!=null ? Math.ceil(v.retailCheck.daysToSell)+' days to sell' : ''));
+    saveDB(); renderVehicleDetail();
+  }catch(e){
+    alert('Could not run the retail check.\n\n' + (e.message||e));
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '↻ Refresh'; }
+  }
+}
+
+function retailCheckPanel(v){
+  const r = v.retailCheck;
+  const cost = vehicleCostTotal(v);
+  if(!r){
+    return `<div class="card" style="margin-bottom:12px;">
+      <div class="flex-between" style="flex-wrap:wrap;gap:8px;">
+        <div><strong>Retail check</strong>
+          <div class="small-muted">Auto Trader valuation, demand and how fast it should sell here.</div></div>
+        <button class="btn btn-sm btn-brand" id="rcBtn" onclick="runRetailCheck('${v.id}')">Run retail check</button>
+      </div></div>`;
+  }
+  const days = r.daysToSell != null ? Math.ceil(r.daysToSell) : null;
+  const marginAtRetail = (r.retail||0) - cost;
+  const askVsRetail = (Number(v.askingPrice)||0) - (r.retail||0);
+  const stale = r.atMileage && Number(v.mileage) && Math.abs(Number(v.mileage)-r.atMileage) > 2000;
+
+  return `<div class="card" style="margin-bottom:12px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+      <div><strong>Retail check</strong>
+        <div class="small-muted">Auto Trader · checked ${fmtDate((r.checkedAt||'').slice(0,10))}${r.postcode?' · '+escapeHtml(r.postcode):''}</div></div>
+      <button class="btn btn-sm btn-ghost" id="rcBtn" onclick="runRetailCheck('${v.id}')">↻ Refresh</button>
+    </div>
+
+    ${stale?`<div class="overdue-banner" style="margin-bottom:10px;"><span>Mileage has changed since this check — refresh for an accurate valuation.</span></div>`:''}
+
+    <div class="grid kpi-grid" style="margin-bottom:10px;">
+      <div class="card kpi"><div class="label">Retail value</div><div class="value small">${fmtMoney(r.retail)}</div>
+        <div class="sub">What it should sell for</div></div>
+      <div class="card kpi"><div class="label">Trade / Part-ex</div><div class="value small">${fmtMoney(r.trade)}</div>
+        <div class="sub">PX ${fmtMoney(r.partEx)}</div></div>
+      <div class="card kpi"><div class="label">Retail rating</div>
+        <div class="value" style="color:${ratingColour(r.rating)}">${r.rating!=null?Math.round(r.rating):'—'}<span style="font-size:14px;color:var(--grey)">/100</span></div>
+        <div class="sub">${ratingWords(r.rating)}</div></div>
+      <div class="card kpi"><div class="label">Days to sell</div><div class="value">${days??'—'}</div>
+        <div class="sub">At retail price, near you</div></div>
+    </div>
+
+    <table style="margin-bottom:10px;">
+      <tr><td>Market demand</td><td>${sdWords(r.demand,'demand')} <span class="small-muted">(${r.demand??'—'})</span></td></tr>
+      <tr><td>Market supply</td><td>${sdWords(r.supply,'supply')} <span class="small-muted">(${r.supply??'—'})</span></td></tr>
+      <tr><td>Market condition</td><td>${sdWords(r.marketCondition,'cond')} <span class="small-muted">(${r.marketCondition??'—'})</span></td></tr>
+      ${r.nationalDaysToSell!=null?`<tr><td>Nationally</td><td>${Math.ceil(r.nationalDaysToSell)} days · rating ${Math.round(r.nationalRating||0)}/100</td></tr>`:''}
+    </table>
+
+    <table>
+      <tr><td>Your cost so far</td><td>${fmtMoney(cost)}</td></tr>
+      <tr><td>Margin if sold at retail value</td>
+        <td style="font-weight:700;color:${marginAtRetail>=0?'var(--green)':'var(--red)'}">${fmtMoney(marginAtRetail)}</td></tr>
+      ${v.askingPrice?`<tr><td>Your asking price vs retail value</td>
+        <td style="color:${askVsRetail>0?'var(--amber)':'var(--green)'}">${askVsRetail>0?'+':''}${fmtMoney(askVsRetail)}
+        ${askVsRetail>0?' <span class="small-muted">above market — may sell slower</span>':(askVsRetail<0?' <span class="small-muted">below market</span>':'')}</td></tr>`:''}
+    </table>
+
+    ${isMuzaribCar(v)?(()=>{const m=muzarib(v.muzaribId)||{};
+      const net=Math.max(0,marginAtRetail-(m.adminCharge??500));
+      return `<div class="small-muted" style="margin-top:8px;">At retail value, ${escapeHtml(muzaribName(v.muzaribId))} would receive about
+        <b>${fmtMoney(net*(Number(m.splitPct??50)/100))}</b>.</div>`;})():''}
+
+    <div class="small-muted" style="margin-top:10px;">Auto Trader's figures are a market guide, not a promise. Condition, history and how you present the car still decide what it makes.</div>
+  </div>`;
+}
+
+/* Sourcing tool: check a car before you buy it, without adding it to stock. */
+function openSourcingCheck(){
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Check a car before you buy</h3>
+    <div class="small-muted" style="margin-bottom:12px;">Auto Trader valuation and demand for a car you're thinking of bidding on. Costs a few pence per check.</div>
+    <div class="field-row">
+      <div class="field"><label>Registration *</label><input id="sc_reg" style="text-transform:uppercase"/></div>
+      <div class="field"><label>Mileage *</label><input id="sc_miles" type="number"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Condition (0–100)</label><input id="sc_cond" type="number" value="70" min="0" max="100"/>
+        <div class="small-muted" style="margin-top:4px;">70 is tidy retail-ready; lower it for cars needing work.</div></div>
+      <div class="field"><label>What you'd pay (£)</label><input id="sc_bid" type="number"/></div>
+    </div>
+    <div id="sc_result" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-brand" id="sc_go" onclick="runSourcingCheck()">Check it</button>
+    </div>`);
+}
+async function runSourcingCheck(){
+  const reg = normaliseReg(document.getElementById('sc_reg').value);
+  const miles = Number(document.getElementById('sc_miles').value)||0;
+  const cond = Number(document.getElementById('sc_cond').value);
+  const bid = Number(document.getElementById('sc_bid').value)||0;
+  if(!reg || !miles){ alert('Registration and mileage are both needed.'); return; }
+  const btn = document.getElementById('sc_go');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try{
+    const res = await fetch(LOOKUP_URL, {method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_ANON_KEY},
+      body: JSON.stringify({registration:reg, retailCheck:true, mileage:miles, condition:cond,
+        postcode: DB.dealerPostcode||undefined})});
+    const d = await res.json();
+    if(!res.ok || d.error) throw new Error(d.error||'Check failed');
+    const r = d.retailCheck;
+    if(!r) throw new Error('No Auto Trader data for that registration.');
+    const days = r.daysToSell!=null?Math.ceil(r.daysToSell):null;
+    const roughMargin = bid ? (r.retail||0) - bid : null;
+    const box = document.getElementById('sc_result');
+    box.style.display='';
+    box.innerHTML = `
+      <div style="border-top:1px solid var(--line);margin-top:6px;padding-top:12px;">
+        <div style="font-weight:700;margin-bottom:6px;">${escapeHtml(d.make||'')} ${escapeHtml(d.model||'')}</div>
+        ${r.description?`<div class="small-muted" style="margin-bottom:8px;">${escapeHtml(r.description)}</div>`:''}
+        <table>
+          <tr><td>Retail value</td><td style="font-weight:700">${fmtMoney(r.retail)}</td></tr>
+          <tr><td>Trade / Part-ex</td><td>${fmtMoney(r.trade)} / ${fmtMoney(r.partEx)}</td></tr>
+          <tr><td>Retail rating</td><td style="color:${ratingColour(r.rating)};font-weight:700">${r.rating!=null?Math.round(r.rating):'—'}/100 <span class="small-muted">${ratingWords(r.rating)}</span></td></tr>
+          <tr><td>Days to sell</td><td>${days??'—'}</td></tr>
+          <tr><td>Demand / supply</td><td>${sdWords(r.demand,'demand')} · ${sdWords(r.supply,'supply')}</td></tr>
+          ${roughMargin!=null?`<tr><td>Gross margin if you pay ${fmtMoney(bid)}</td>
+            <td style="font-weight:700;color:${roughMargin>=0?'var(--green)':'var(--red)'}">${fmtMoney(roughMargin)}
+            <span class="small-muted">before prep</span></td></tr>`:''}
+        </table>
+        <div class="small-muted" style="margin-top:8px;">Remember to take preparation costs off that margin before deciding.</div>
+      </div>`;
+  }catch(e){ alert('Could not check that car.\n\n'+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='Check again'; }
+}
+
+/* =========================================================================
+   PARTS, EXTRA WORK & COST NOTES
+   Parts and extra mechanical jobs are line items rather than one lump sum,
+   so you can see exactly what a car swallowed. Both feed into the total
+   cost, which means margins and Muzaribat settlements update automatically.
+   ========================================================================= */
+const PART_STATUS = ['To order','Ordered','Arrived','Fitted','Returned'];
+
+function vehicleParts(v){ return v.parts || []; }
+function vehicleWorks(v){ return v.works || []; }
+/* Returned parts don't count — the money came back. */
+function partsTotal(v){
+  return vehicleParts(v).filter(p=>p.status!=='Returned')
+    .reduce((s,p)=>s+(Number(p.cost)||0),0);
+}
+function worksTotal(v){ return vehicleWorks(v).reduce((s,w)=>s+(Number(w.cost)||0),0); }
+
+function partStatusTag(st){
+  const cls = st==='Fitted' ? 'tag-green' : st==='Arrived' ? 'tag-brand'
+            : st==='Ordered' ? 'tag-amber' : st==='Returned' ? 'tag-grey' : 'tag-red';
+  return `<span class="tag ${cls}">${st}</span>`;
+}
+
+/* ---------- parts ---------- */
+function openPartForm(vid, pid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const p = pid ? vehicleParts(v).find(x=>x.id===pid) : null;
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>${p?'Edit part':'Add a part'}</h3>
+    <div class="field"><label>Part *</label><input id="pt_name" value="${p?escapeAttr(p.name):''}" placeholder="e.g. Nearside headlight"/></div>
+    <div class="field-row">
+      <div class="field"><label>Cost (£)</label><input id="pt_cost" type="number" step="0.01" value="${p?p.cost:''}"/></div>
+      <div class="field"><label>Quantity</label><input id="pt_qty" type="number" value="${p?(p.qty||1):1}" min="1"/></div>
+      <div class="field"><label>Status</label><select id="pt_status">${PART_STATUS.map(s=>`<option ${p&&p.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Supplier</label><input id="pt_supplier" value="${p?escapeAttr(p.supplier||''):''}" placeholder="e.g. eBay, Euro Car Parts"/></div>
+      <div class="field"><label>Expected / fitted date</label><input id="pt_date" type="date" value="${p?(p.date||''):todayISO()}"/></div>
+    </div>
+    <div class="field"><label>Link</label><input id="pt_link" value="${p?escapeAttr(p.link||''):''}" placeholder="Paste the listing link so anyone can reorder it"/></div>
+    <div class="field"><label>Note</label><input id="pt_note" value="${p?escapeAttr(p.note||''):''}" placeholder="e.g. part number, colour code"/></div>
+    <div class="modal-actions">
+      ${p?`<button class="btn btn-danger" onclick="deletePart('${vid}','${p.id}')" style="margin-right:auto">Delete</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="savePart('${vid}',${p?`'${p.id}'`:'null'})">${p?'Save':'Add part'}</button>
+    </div>`);
+}
+function savePart(vid, pid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const name = document.getElementById('pt_name').value.trim();
+  if(!name){ alert('Give the part a name'); return; }
+  const data = {
+    name,
+    cost: Number(document.getElementById('pt_cost').value)||0,
+    qty: Number(document.getElementById('pt_qty').value)||1,
+    status: document.getElementById('pt_status').value,
+    supplier: document.getElementById('pt_supplier').value.trim(),
+    date: document.getElementById('pt_date').value,
+    link: document.getElementById('pt_link').value.trim(),
+    note: document.getElementById('pt_note').value.trim()
+  };
+  if(!v.parts) v.parts = [];
+  if(pid){
+    const p = v.parts.find(x=>x.id===pid); if(!p) return;
+    const before = Number(p.cost)||0;
+    Object.assign(p, data);
+    logChange('cost','Changed part on', vehRef(v), name, fmtMoney(before), fmtMoney(data.cost), data.status);
+  } else {
+    v.parts.push({id:nextId('part'), ...data, addedBy:currentUserName, createdAt:todayISO()});
+    logChange('cost','Added part to', vehRef(v), name, '', fmtMoney(data.cost),
+      (data.supplier?data.supplier+' · ':'') + data.status);
+  }
+  saveDB(); closeModal(); renderVehicleDetail();
+}
+function deletePart(vid, pid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const p = vehicleParts(v).find(x=>x.id===pid);
+  if(!confirm('Delete this part?')) return;
+  if(p) logChange('cost','Removed part from', vehRef(v), p.name, fmtMoney(p.cost), '', '');
+  v.parts = vehicleParts(v).filter(x=>x.id!==pid);
+  saveDB(); closeModal(); renderVehicleDetail();
+}
+function cyclePartStatus(vid, pid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const p = vehicleParts(v).find(x=>x.id===pid); if(!p) return;
+  const i = PART_STATUS.indexOf(p.status);
+  const before = p.status;
+  p.status = PART_STATUS[(i+1) % PART_STATUS.length];
+  logChange('cost','Part status on', vehRef(v), p.name, before, p.status, '');
+  saveDB(); renderVehicleDetail();
+}
+
+/* ---------- extra mechanical work ---------- */
+function openWorkForm(vid, wid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const w = wid ? vehicleWorks(v).find(x=>x.id===wid) : null;
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>${w?'Edit work':'Add mechanical work'}</h3>
+    <div class="field"><label>What was done *</label><input id="wk_desc" value="${w?escapeAttr(w.desc):''}" placeholder="e.g. Replace front discs and pads"/></div>
+    <div class="field-row">
+      <div class="field"><label>Cost (£)</label><input id="wk_cost" type="number" step="0.01" value="${w?w.cost:''}"/></div>
+      <div class="field"><label>Date</label><input id="wk_date" type="date" value="${w?(w.date||todayISO()):todayISO()}"/></div>
+    </div>
+    <div class="field"><label>Who did it</label><input id="wk_by" value="${w?escapeAttr(w.by||''):''}" placeholder="e.g. in-house, or the garage's name"/></div>
+    <div class="field"><label>Note</label><input id="wk_note" value="${w?escapeAttr(w.note||''):''}" placeholder="Anything worth remembering"/></div>
+    <div class="modal-actions">
+      ${w?`<button class="btn btn-danger" onclick="deleteWork('${vid}','${w.id}')" style="margin-right:auto">Delete</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveWork('${vid}',${w?`'${w.id}'`:'null'})">${w?'Save':'Add work'}</button>
+    </div>`);
+}
+function saveWork(vid, wid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const desc = document.getElementById('wk_desc').value.trim();
+  if(!desc){ alert('Describe the work'); return; }
+  const data = {
+    desc,
+    cost: Number(document.getElementById('wk_cost').value)||0,
+    date: document.getElementById('wk_date').value,
+    by: document.getElementById('wk_by').value.trim(),
+    note: document.getElementById('wk_note').value.trim()
+  };
+  if(!v.works) v.works = [];
+  if(wid){
+    const w = v.works.find(x=>x.id===wid); if(!w) return;
+    const before = Number(w.cost)||0;
+    Object.assign(w, data);
+    logChange('cost','Changed work on', vehRef(v), desc, fmtMoney(before), fmtMoney(data.cost), '');
+  } else {
+    v.works.push({id:nextId('work'), ...data, addedBy:currentUserName, createdAt:todayISO()});
+    logChange('cost','Added work to', vehRef(v), desc, '', fmtMoney(data.cost), data.by);
+  }
+  saveDB(); closeModal(); renderVehicleDetail();
+}
+function deleteWork(vid, wid){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const w = vehicleWorks(v).find(x=>x.id===wid);
+  if(!confirm('Delete this work item?')) return;
+  if(w) logChange('cost','Removed work from', vehRef(v), w.desc, fmtMoney(w.cost), '', '');
+  v.works = vehicleWorks(v).filter(x=>x.id!==wid);
+  saveDB(); closeModal(); renderVehicleDetail();
+}
+
+/* ---------- cost note ---------- */
+function updateCostNote(vid, text){
+  const v = DB.vehicles.find(x=>x.id===vid); if(!v) return;
+  const before = v.costNote || '';
+  v.costNote = text;
+  if(before !== text) logChange('cost','Changed cost note on', vehRef(v), 'Note',
+    before ? before.slice(0,40) : '(empty)', text ? text.slice(0,40) : '(empty)', '');
+  saveDB();
+}
+
+/* ---------- rendering ---------- */
+function partsSection(v){
+  const parts = vehicleParts(v);
+  const outstanding = parts.filter(p=>p.status==='To order'||p.status==='Ordered');
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:8px;">
+      <h3 style="margin:0">Parts ${parts.length?`<span class="small-muted">(${parts.length})</span>`:''}</h3>
+      <button class="btn btn-sm btn-brand" onclick="openPartForm('${v.id}')">+ Add part</button>
+    </div>
+    ${outstanding.length?`<div class="small-muted" style="margin-top:6px;color:var(--amber)">${outstanding.length} part${outstanding.length===1?'':'s'} still to arrive.</div>`:''}
+    ${parts.length ? `<table style="margin-top:10px;"><thead><tr><th>Part</th><th>Supplier</th><th>Status</th><th>Cost</th><th></th></tr></thead><tbody>
+      ${parts.map(p=>`<tr>
+        <td><b>${escapeHtml(p.name)}</b>${p.qty>1?` <span class="small-muted">×${p.qty}</span>`:''}
+          ${p.note?`<div class="small-muted">${escapeHtml(p.note)}</div>`:''}
+          ${p.link?`<a class="link" href="${escapeAttr(p.link)}" target="_blank" rel="noopener" style="font-size:12px;">View listing →</a>`:''}</td>
+        <td>${escapeHtml(p.supplier||'—')}<div class="small-muted">${p.date?fmtDate(p.date):''}</div></td>
+        <td style="cursor:pointer" onclick="cyclePartStatus('${v.id}','${p.id}')" title="Tap to move it on">${partStatusTag(p.status)}</td>
+        <td style="${p.status==='Returned'?'text-decoration:line-through;color:var(--grey)':''}">${fmtMoney((Number(p.cost)||0))}</td>
+        <td><button class="btn btn-sm btn-ghost" onclick="openPartForm('${v.id}','${p.id}')">Edit</button></td>
+      </tr>`).join('')}
+      <tr><td colspan="3" style="font-weight:700;">Parts total</td>
+          <td style="font-weight:700;">${fmtMoney(partsTotal(v))}</td><td></td></tr>
+    </tbody></table>` : '<div class="empty" style="padding:22px;">No parts logged for this car yet.</div>'}
+  </div>`;
+}
+
+function worksSection(v){
+  const works = vehicleWorks(v);
+  const pending = pendingCostCount(v);
+  // Entries come from two places: added by hand, or created when a job was
+  // marked done. Field names differ slightly, so read either.
+  const title = w => w.title || w.desc || 'Work';
+  const when  = w => w.doneAt || w.date || w.createdAt;
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:8px;">
+      <h3 style="margin:0">Mechanical &amp; repair work ${works.length?`<span class="small-muted">(${works.length})</span>`:''}</h3>
+      <button class="btn btn-sm btn-brand" onclick="openWorkForm('${v.id}')">+ Add work</button>
+    </div>
+    ${pending?`<div class="overdue-banner" style="margin-top:10px;"><span>⚠ ${pending} job${pending===1?'':'s'} finished without a cost — the total below is understated until you add ${pending===1?'it':'them'}.</span></div>`:''}
+    ${works.length ? `<table style="margin-top:10px;"><thead><tr><th>Work done</th><th>Type</th><th>Who</th><th>Date</th><th>Cost</th><th></th></tr></thead><tbody>
+      ${works.slice().sort((a,b)=>(when(b)||'').localeCompare(when(a)||'')).map(w=>`<tr>
+        <td><b>${escapeHtml(title(w))}</b>${w.note?`<div class="small-muted">${escapeHtml(w.note)}</div>`:''}
+            ${w.issueId?'<span class="tag tag-grey">From issue</span>':''}</td>
+        <td>${escapeHtml(w.type||'—')}</td>
+        <td>${escapeHtml(w.by||'—')}</td>
+        <td>${when(w)?fmtDate(when(w)):'—'}</td>
+        <td>${w.costPending
+              ? `<button class="btn btn-sm btn-amber" onclick="openPendingCost('${v.id}','${w.id}')">Add cost</button>`
+              : fmtMoney(w.cost)}</td>
+        <td><button class="btn btn-sm btn-ghost" onclick="openWorkForm('${v.id}','${w.id}')">Edit</button></td>
+      </tr>`).join('')}
+      <tr><td colspan="4" style="font-weight:700;">Work total</td>
+          <td style="font-weight:700;">${fmtMoney(worksTotal(v))}</td><td></td></tr>
+    </tbody></table>` : '<div class="empty" style="padding:22px;">No work logged yet. Jobs you mark as done appear here automatically, or add one with the button above.</div>'}
+  </div>`;
+}
+
+/* Everything that happened to this car, in one place. */
+function vehicleWorkHistory(v){
+  const rows = [];
+  (v.works||[]).forEach(w=>rows.push({
+    at: w.doneAt || w.date || w.createdAt, kind: w.type || 'Work',
+    what: w.title || w.desc || 'Work', note: w.note||'', cost: w.costPending?null:(Number(w.cost)||0),
+    by: w.by||'', pending: !!w.costPending, id: w.id
+  }));
+  (v.parts||[]).forEach(p=>rows.push({
+    at: p.fittedAt || p.orderedAt || p.createdAt, kind: 'Part',
+    what: p.name || 'Part', note: [p.supplier, p.status].filter(Boolean).join(' · '),
+    cost: p.status==='Returned' ? 0 : (Number(p.cost)||0), by: p.addedBy||'', pending:false
+  }));
+  (v.issues||[]).filter(i=>i.status==='done').forEach(i=>{
+    // Only show issues that didn't already create a work line
+    if((v.works||[]).some(w=>w.issueId===i.id)) return;
+    rows.push({at:i.doneAt, kind: i.type||'Issue', what: i.description||'Issue resolved',
+               note:i.note||'', cost:null, by:i.doneBy||'', pending:false});
+  });
+  const c = v.costs||{};
+  Object.entries({purchase:'Purchase',delivery:'Delivery',service:'Service',mot:'MOT',
+                  bodywork:'Bodywork',mechanical:'Mechanical',autotrader:'AutoTrader',fuel:'Fuel',other:'Other'})
+    .forEach(([k,label])=>{ if(Number(c[k])) rows.push({at:v.dateAdded, kind:'Cost', what:label,
+                                                        note:'', cost:Number(c[k]), by:'', pending:false}); });
+  return rows.sort((a,b)=>(b.at||'').localeCompare(a.at||''));
+}
+function workHistorySection(v){
+  const rows = vehicleWorkHistory(v);
+  const spent = rows.reduce((s,r)=>s+(r.cost||0),0);
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <h3 style="margin:0 0 4px">Everything done to this car</h3>
+    <div class="small-muted" style="margin-bottom:10px;">Every job, part and cost, newest first.</div>
+    ${rows.length ? `<table><thead><tr><th>Date</th><th>What</th><th>Type</th><th>Who</th><th>Cost</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr>
+        <td>${r.at?fmtDate(r.at):'—'}</td>
+        <td><b>${escapeHtml(r.what)}</b>${r.note?`<div class="small-muted">${escapeHtml(r.note)}</div>`:''}</td>
+        <td>${escapeHtml(r.kind)}</td>
+        <td>${escapeHtml(r.by||'—')}</td>
+        <td>${r.pending?'<span class="tag tag-amber">Cost to add</span>':(r.cost!=null?fmtMoney(r.cost):'—')}</td>
+      </tr>`).join('')}
+      <tr><td colspan="4" style="font-weight:700;">Total spent</td><td style="font-weight:700;">${fmtMoney(spent)}</td></tr>
+    </tbody></table>` : '<div class="empty" style="padding:22px;">Nothing recorded yet.</div>'}
+  </div>`;
+}
+
+
+/* =========================================================================
+   WEBSITE BUILDER — pages, sections, sliders, photos and text, all edited
+   here and published to the public site. Drag to reorder on a desktop;
+   arrow buttons do the same on a phone.
+   ========================================================================= */
+
+const SECTION_TYPES = {
+  hero:     {label:'Hero slider',      icon:'🖼', desc:'Full-width slides with a heading and button'},
+  cars:     {label:'Car listings',     icon:'🚗', desc:'Pulls live from your stock'},
+  text:     {label:'Text block',       icon:'📝', desc:'Heading and paragraphs'},
+  features: {label:'Feature columns',  icon:'✅', desc:'Icons with short descriptions'},
+  gallery:  {label:'Photo gallery',    icon:'📷', desc:'Grid of photos'},
+  video:    {label:'Video',            icon:'🎬', desc:'YouTube or uploaded video'},
+  steps:    {label:'Numbered steps',   icon:'🔢', desc:'How your process works'},
+  reviews:  {label:'Reviews',          icon:'⭐', desc:'Customer quotes'},
+  contact:  {label:'Contact block',    icon:'📞', desc:'Phone, WhatsApp, email, map'},
+  cta:      {label:'Call to action',   icon:'📣', desc:'A band with a button'},
+};
+
+function siteData(){
+  if(!DB.site) DB.site = defaultSite();
+  return DB.site;
+}
+function defaultSite(){
+  return {
+    settings: {
+      name:'Car Express', tagline:'Quality used cars in Hemel Hempstead',
+      phone:'', whatsapp:'', email:'', address:['',''], mapsQuery:'',
+      hours:'Mon – Sat 9:00 – 18:00 · Sun 10:00 – 16:00',
+      social:{facebook:'',instagram:'',tiktok:'',youtube:''},
+      primaryColour:'#DC2226', darkColour:'#17428C'
+    },
+    menu: [
+      {id:nextId('mi'), label:'Home', page:'home'},
+      {id:nextId('mi'), label:'Cars For Sale', page:'stock'},
+      {id:nextId('mi'), label:'About Us', page:'about'},
+      {id:nextId('mi'), label:'Contact', page:'contact'},
+    ],
+    pages: [
+      {id:'home', name:'Home', slug:'home', sections:[
+        {id:nextId('sec'), type:'hero', visible:true, slides:[
+          {id:nextId('sl'), heading:"Every car ready before it's advertised",
+           sub:'Serviced, MOT\u2019d and HPI checked before it reaches the forecourt.',
+           buttonText:'View our cars', buttonPage:'stock', photoId:null, videoUrl:''}
+        ]},
+        {id:nextId('sec'), type:'cars', visible:true, title:'Our latest stock', limit:6, showAll:true},
+        {id:nextId('sec'), type:'steps', visible:true, title:'How we prepare every car', items:[
+          {id:nextId('it'), title:'Sourced & checked', text:'History, mileage and condition verified before we buy.'},
+          {id:nextId('it'), title:'Mechanical work',   text:'Servicing, MOT and any repairs completed and recorded.'},
+          {id:nextId('it'), title:'Full inspection',   text:'A point-by-point check before it goes on sale.'},
+          {id:nextId('it'), title:'Cleaned & listed',  text:'Valeted, photographed and advertised.'},
+        ]},
+        {id:nextId('sec'), type:'contact', visible:true, title:'Get in touch'},
+      ]},
+      {id:'stock', name:'Cars For Sale', slug:'stock', sections:[
+        {id:nextId('sec'), type:'cars', visible:true, title:'Cars for sale', limit:0, showAll:false},
+      ]},
+      {id:'about', name:'About Us', slug:'about', sections:[
+        {id:nextId('sec'), type:'text', visible:true, title:'About us',
+         body:'We\u2019re an independent used car dealer in Hemel Hempstead.'},
+      ]},
+      {id:'contact', name:'Contact', slug:'contact', sections:[
+        {id:nextId('sec'), type:'contact', visible:true, title:'Get in touch'},
+      ]},
+    ]
+  };
+}
+
+let sbPage = 'home', sbTab = 'pages';
+
+function renderSiteBuilder(){
+  const S = siteData();
+  const page = S.pages.find(p=>p.id===sbPage) || S.pages[0];
+  if(page) sbPage = page.id;
+  return `
+  <div class="topbar">
+    <div><h1>Website</h1><div class="date">Build and update your public site &mdash; then publish</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-ghost" onclick="previewSite()">👁 Preview</button>
+      <button class="btn btn-brand" onclick="publishSite()">🌐 Publish site</button>
+    </div>
+  </div>
+  ${DB.sitePublishedAt?`<div class="small-muted" style="margin:-6px 0 12px;">Last published ${fmtDate(DB.sitePublishedAt.slice(0,10))}${siteHasChanges()?' &middot; <b style="color:var(--amber)">unpublished changes</b>':' &middot; up to date'}</div>`:'<div class="overdue-banner"><span>Not published yet &mdash; press Publish site when you\u2019re ready for it to go live.</span></div>'}
+
+  <div class="chip-row">
+    <div class="chip ${sbTab==='pages'?'active':''}" onclick="sbTab='pages';render()">Pages &amp; sections</div>
+    <div class="chip ${sbTab==='menu'?'active':''}" onclick="sbTab='menu';render()">Menu</div>
+    <div class="chip ${sbTab==='settings'?'active':''}" onclick="sbTab='settings';render()">Details &amp; branding</div>
+  </div>
+
+  ${sbTab==='pages' ? renderSbPages(S, page)
+   : sbTab==='menu' ? renderSbMenu(S)
+   : renderSbSettings(S)}
+  `;
+}
+
+function siteHasChanges(){
+  if(!DB.sitePublishedAt) return true;
+  return (DB.siteChangedAt||'') > DB.sitePublishedAt;
+}
+function touchSite(){ DB.siteChangedAt = new Date().toISOString(); }
+
+/* ---------- pages & sections ---------- */
+function renderSbPages(S, page){
+  return `
+  <div class="card" style="margin-bottom:14px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:8px;">
+      <strong>Pages</strong>
+      <button class="btn btn-sm btn-brand" onclick="addSitePage()">+ Add page</button>
+    </div>
+    <div class="chip-row" style="margin-top:10px;">
+      ${S.pages.map(p=>`<div class="chip ${p.id===sbPage?'active':''}" onclick="sbPage='${p.id}';render()">${escapeHtml(p.name)}</div>`).join('')}
+    </div>
+  </div>
+
+  ${!page?'':`
+  <div class="card" style="margin-bottom:14px;">
+    <div class="flex-between" style="flex-wrap:wrap;gap:8px;">
+      <div>
+        <strong>${escapeHtml(page.name)}</strong>
+        <div class="small-muted">Address: /${escapeHtml(page.slug)}.html &middot; ${page.sections.length} section${page.sections.length===1?'':'s'}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-ghost" onclick="renameSitePage('${page.id}')">Rename</button>
+        ${['home','stock'].includes(page.id)?'':`<button class="btn btn-sm btn-danger" onclick="deleteSitePage('${page.id}')">Delete page</button>`}
+      </div>
+    </div>
+  </div>
+
+  <div class="small-muted" style="margin-bottom:8px;">Drag a section to reorder, or use the arrows. Tap a section to edit it.</div>
+  <div id="sbSections">
+    ${page.sections.map((s,i)=>sectionCard(page, s, i)).join('') ||
+      '<div class="card"><div class="empty">No sections yet. Add one below.</div></div>'}
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <strong>Add a section</strong>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:10px;">
+      ${Object.entries(SECTION_TYPES).map(([k,t])=>`
+        <div class="card" style="padding:12px;cursor:pointer;box-shadow:none;border:1px solid var(--line);"
+             onclick="addSiteSection('${page.id}','${k}')">
+          <div style="font-size:20px;">${t.icon}</div>
+          <div style="font-weight:700;font-size:14px;">${t.label}</div>
+          <div class="small-muted" style="font-size:12px;">${t.desc}</div>
+        </div>`).join('')}
+    </div>
+  </div>`}
+  `;
+}
+
+function sectionCard(page, s, i){
+  const t = SECTION_TYPES[s.type] || {label:s.type, icon:'▫'};
+  let summary = '';
+  if(s.type==='hero')      summary = `${(s.slides||[]).length} slide${(s.slides||[]).length===1?'':'s'}`;
+  else if(s.type==='cars') summary = s.showAll ? 'All available cars' : `Up to ${s.limit||6} cars`;
+  else if(s.type==='gallery') summary = `${(s.photoIds||[]).length} photos`;
+  else if(s.type==='steps'||s.type==='features') summary = `${(s.items||[]).length} items`;
+  else if(s.type==='reviews') summary = `${(s.items||[]).length} reviews`;
+  else if(s.type==='text') summary = (s.title||'Text');
+  return `
+  <div class="card sb-sec" draggable="true" data-sec="${s.id}" data-idx="${i}"
+       style="margin-bottom:8px;padding:12px 14px;${s.visible===false?'opacity:.5;':''}">
+    <div class="flex-between" style="gap:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0;cursor:pointer" onclick="editSiteSection('${page.id}','${s.id}')">
+        <span style="font-size:20px;cursor:grab;">☰</span>
+        <div style="min-width:0;">
+          <div style="font-weight:700;">${t.icon} ${t.label}</div>
+          <div class="small-muted">${escapeHtml(summary)}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-ghost" onclick="moveSiteSection('${page.id}','${s.id}',-1)" ${i===0?'disabled':''}>↑</button>
+        <button class="btn btn-sm btn-ghost" onclick="moveSiteSection('${page.id}','${s.id}',1)" ${i===page.sections.length-1?'disabled':''}>↓</button>
+        <button class="btn btn-sm btn-ghost" onclick="toggleSiteSection('${page.id}','${s.id}')">${s.visible===false?'Show':'Hide'}</button>
+        <button class="btn btn-sm btn-ghost" onclick="editSiteSection('${page.id}','${s.id}')">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteSiteSection('${page.id}','${s.id}')">✕</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* drag and drop, with touch falling back to the arrow buttons */
+function initSectionDrag(){
+  const wrap = document.getElementById('sbSections'); if(!wrap) return;
+  let dragId = null;
+  wrap.querySelectorAll('.sb-sec').forEach(el=>{
+    el.addEventListener('dragstart', e=>{ dragId = el.dataset.sec; el.style.opacity='.4'; });
+    el.addEventListener('dragend',   e=>{ el.style.opacity=''; });
+    el.addEventListener('dragover',  e=>{ e.preventDefault(); el.style.borderTop='3px solid var(--brand)'; });
+    el.addEventListener('dragleave', e=>{ el.style.borderTop=''; });
+    el.addEventListener('drop', e=>{
+      e.preventDefault(); el.style.borderTop='';
+      if(dragId && dragId!==el.dataset.sec) dropSiteSection(dragId, el.dataset.sec);
+    });
+  });
+}
+function dropSiteSection(fromId, toId){
+  const page = siteData().pages.find(p=>p.id===sbPage); if(!page) return;
+  const from = page.sections.findIndex(s=>s.id===fromId);
+  const to   = page.sections.findIndex(s=>s.id===toId);
+  if(from<0||to<0) return;
+  const [m] = page.sections.splice(from,1);
+  page.sections.splice(to,0,m);
+  touchSite(); saveDB(); render();
+}
+function moveSiteSection(pid, sid, dir){
+  const page = siteData().pages.find(p=>p.id===pid); if(!page) return;
+  const i = page.sections.findIndex(s=>s.id===sid);
+  const j = i+dir;
+  if(i<0||j<0||j>=page.sections.length) return;
+  [page.sections[i], page.sections[j]] = [page.sections[j], page.sections[i]];
+  touchSite(); saveDB(); render();
+}
+function toggleSiteSection(pid, sid){
+  const page = siteData().pages.find(p=>p.id===pid);
+  const s = page && page.sections.find(x=>x.id===sid); if(!s) return;
+  s.visible = s.visible===false;
+  touchSite(); saveDB(); render();
+}
+function deleteSiteSection(pid, sid){
+  if(!confirm('Remove this section from the page?')) return;
+  const page = siteData().pages.find(p=>p.id===pid); if(!page) return;
+  page.sections = page.sections.filter(s=>s.id!==sid);
+  touchSite(); saveDB(); render();
+}
+function addSiteSection(pid, type){
+  const page = siteData().pages.find(p=>p.id===pid); if(!page) return;
+  const base = {id:nextId('sec'), type, visible:true};
+  if(type==='hero') base.slides = [{id:nextId('sl'), heading:'New slide', sub:'', buttonText:'', buttonPage:'stock', photoId:null, videoUrl:''}];
+  if(type==='cars'){ base.title='Our cars'; base.limit=6; base.showAll=true; }
+  if(type==='text'){ base.title='New section'; base.body=''; }
+  if(type==='steps'||type==='features') base.items = [{id:nextId('it'), title:'Item one', text:''}];
+  if(type==='reviews') base.items = [{id:nextId('it'), title:'Customer', text:'', stars:5}];
+  if(type==='gallery') base.photoIds = [];
+  if(type==='video'){ base.videoUrl=''; base.title='Video'; }
+  if(type==='cta'){ base.title='Ready to find your next car?'; base.buttonText='View our cars'; base.buttonPage='stock'; }
+  if(type==='contact') base.title='Get in touch';
+  page.sections.push(base);
+  touchSite(); saveDB(); render();
+  setTimeout(()=>editSiteSection(pid, base.id), 60);
+}
+
+/* ---------- pages ---------- */
+function addSitePage(){
+  const name = prompt('Page name (e.g. Finance, Warranty, Reviews)');
+  if(!name) return;
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  const S = siteData();
+  if(S.pages.some(p=>p.slug===slug)){ alert('A page with that address already exists.'); return; }
+  const id = nextId('pg');
+  S.pages.push({id, name, slug, sections:[{id:nextId('sec'), type:'text', visible:true, title:name, body:''}]});
+  S.menu.push({id:nextId('mi'), label:name, page:id});
+  sbPage = id; touchSite(); saveDB(); render();
+}
+function renameSitePage(pid){
+  const p = siteData().pages.find(x=>x.id===pid); if(!p) return;
+  const name = prompt('Page name', p.name); if(!name) return;
+  p.name = name;
+  const mi = siteData().menu.find(m=>m.page===pid); if(mi) mi.label = name;
+  touchSite(); saveDB(); render();
+}
+function deleteSitePage(pid){
+  if(!confirm('Delete this page and everything on it?')) return;
+  const S = siteData();
+  S.pages = S.pages.filter(p=>p.id!==pid);
+  S.menu  = S.menu.filter(m=>m.page!==pid);
+  sbPage = S.pages[0] ? S.pages[0].id : null;
+  touchSite(); saveDB(); render();
+}
+
+/* ---------- section editors ---------- */
+function editSiteSection(pid, sid){
+  const page = siteData().pages.find(p=>p.id===pid);
+  const s = page && page.sections.find(x=>x.id===sid); if(!s) return;
+  const pageOpts = siteData().pages.map(p=>`<option value="${p.id}" ${'' }>${escapeHtml(p.name)}</option>`).join('');
+  let body = '';
+
+  if(s.type==='hero'){
+    body = `
+      <div class="small-muted" style="margin-bottom:8px;">Slides rotate automatically. Add a photo or a video background to each.</div>
+      <div id="heroSlides">
+        ${(s.slides||[]).map((sl,i)=>`
+          <div class="card" style="padding:12px;margin-bottom:8px;">
+            <div class="flex-between"><strong>Slide ${i+1}</strong>
+              <div style="display:flex;gap:4px;">
+                <button class="btn btn-sm btn-ghost" onclick="moveSlide('${pid}','${sid}','${sl.id}',-1)" ${i===0?'disabled':''}>↑</button>
+                <button class="btn btn-sm btn-ghost" onclick="moveSlide('${pid}','${sid}','${sl.id}',1)" ${i===(s.slides.length-1)?'disabled':''}>↓</button>
+                ${s.slides.length>1?`<button class="btn btn-sm btn-danger" onclick="deleteSlide('${pid}','${sid}','${sl.id}')">✕</button>`:''}
+              </div></div>
+            <div class="field"><label>Heading</label><input id="sl_h_${sl.id}" value="${escapeAttr(sl.heading||'')}"/></div>
+            <div class="field"><label>Sub-heading</label><input id="sl_s_${sl.id}" value="${escapeAttr(sl.sub||'')}"/></div>
+            <div class="field-row">
+              <div class="field"><label>Button text</label><input id="sl_bt_${sl.id}" value="${escapeAttr(sl.buttonText||'')}"/></div>
+              <div class="field"><label>Button goes to</label>
+                <select id="sl_bp_${sl.id}">${siteData().pages.map(p=>`<option value="${p.id}" ${sl.buttonPage===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}</select></div>
+            </div>
+            <div class="field"><label>Background photo <span class="link" style="cursor:pointer;font-weight:400" onclick="openMediaGuide('hero')">(size guide)</span></label>
+              ${sl.photoId?`<img src="${getPhotoUrl(sl.photoId)}" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;margin-bottom:6px;">`:''}
+              <input type="file" accept="image/*" onchange="uploadSlidePhoto(event,'${pid}','${sid}','${sl.id}')"/></div>
+            <div class="field"><label>Or a video (YouTube link or MP4)</label>
+              <input id="sl_v_${sl.id}" value="${escapeAttr(sl.videoUrl||'')}" placeholder="https://youtube.com/watch?v=..."/></div>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-ghost" onclick="addSlide('${pid}','${sid}')">+ Add slide</button>`;
+  }
+  else if(s.type==='cars'){
+    body = `
+      <div class="field"><label>Section title</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      <div class="field"><label>How many to show</label>
+        <select id="sec_showall">
+          <option value="all" ${s.showAll?'selected':''}>A few, with a "view all" button</option>
+          <option value="every" ${!s.showAll?'selected':''}>Every available car</option>
+        </select></div>
+      <div class="field"><label>Number shown (when not showing every car)</label>
+        <input id="sec_limit" type="number" value="${s.limit||6}"/></div>
+      <div class="small-muted">Cars come from your stock automatically &mdash; publish stock separately from the Stock page.</div>`;
+  }
+  else if(s.type==='text'){
+    body = `
+      <div class="field"><label>Heading</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      <div class="field"><label>Text</label><textarea id="sec_body" rows="7">${escapeHtml(s.body||'')}</textarea>
+        <div class="small-muted" style="margin-top:4px;">Leave a blank line between paragraphs.</div></div>`;
+  }
+  else if(s.type==='steps' || s.type==='features' || s.type==='reviews'){
+    const label = s.type==='reviews' ? 'Review' : 'Item';
+    body = `
+      <div class="field"><label>Section title</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      ${(s.items||[]).map((it,i)=>`
+        <div class="card" style="padding:12px;margin-bottom:8px;">
+          <div class="flex-between"><strong>${label} ${i+1}</strong>
+            <div style="display:flex;gap:4px;">
+              <button class="btn btn-sm btn-ghost" onclick="moveItem('${pid}','${sid}','${it.id}',-1)" ${i===0?'disabled':''}>↑</button>
+              <button class="btn btn-sm btn-ghost" onclick="moveItem('${pid}','${sid}','${it.id}',1)" ${i===s.items.length-1?'disabled':''}>↓</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteItem('${pid}','${sid}','${it.id}')">✕</button>
+            </div></div>
+          <div class="field"><label>${s.type==='reviews'?'Customer name':'Title'}</label><input id="it_t_${it.id}" value="${escapeAttr(it.title||'')}"/></div>
+          <div class="field"><label>${s.type==='reviews'?'What they said':'Description'}</label><textarea id="it_d_${it.id}" rows="3">${escapeHtml(it.text||'')}</textarea></div>
+          ${s.type==='reviews'?`<div class="field"><label>Stars</label><select id="it_s_${it.id}">${[5,4,3].map(n=>`<option ${Number(it.stars||5)===n?'selected':''}>${n}</option>`).join('')}</select></div>`:''}
+        </div>`).join('')}
+      <button class="btn btn-ghost" onclick="addItem('${pid}','${sid}')">+ Add ${label.toLowerCase()}</button>`;
+  }
+  else if(s.type==='gallery'){
+    body = `
+      <div class="field"><label>Section title</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:10px;">
+        ${(s.photoIds||[]).map(id=>`<div style="position:relative;">
+          <img src="${getPhotoUrl(id)}" style="width:100%;height:90px;object-fit:cover;border-radius:8px;">
+          <button class="btn btn-sm btn-danger" style="position:absolute;top:4px;right:4px;padding:2px 7px;"
+                  onclick="removeGalleryPhoto('${pid}','${sid}','${id}')">✕</button></div>`).join('')}
+      </div>
+      <div class="field"><label>Add photos <span class="link" style="cursor:pointer;font-weight:400" onclick="openMediaGuide('gallery')">(size guide)</span></label><input type="file" accept="image/*" multiple onchange="uploadGalleryPhotos(event,'${pid}','${sid}')"/></div>`;
+  }
+  else if(s.type==='video'){
+    body = `
+      <div class="field"><label>Section title</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      <div class="field"><label>YouTube link or MP4 address <span class="link" style="cursor:pointer;font-weight:400" onclick="openMediaGuide('video')">(what works best)</span></label><input id="sec_video" value="${escapeAttr(s.videoUrl||'')}" placeholder="https://www.youtube.com/watch?v=..."/></div>
+      <div class="small-muted">A YouTube link is easiest &mdash; upload the video there, then paste the link here.</div>`;
+  }
+  else if(s.type==='cta'){
+    body = `
+      <div class="field"><label>Heading</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      <div class="field-row">
+        <div class="field"><label>Button text</label><input id="sec_bt" value="${escapeAttr(s.buttonText||'')}"/></div>
+        <div class="field"><label>Button goes to</label>
+          <select id="sec_bp">${siteData().pages.map(p=>`<option value="${p.id}" ${s.buttonPage===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}</select></div>
+      </div>`;
+  }
+  else if(s.type==='contact'){
+    body = `<div class="field"><label>Section title</label><input id="sec_title" value="${escapeAttr(s.title||'')}"/></div>
+      <div class="small-muted">Your phone, WhatsApp, email and address come from the Details tab, so you only enter them once.</div>`;
+  }
+
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>${SECTION_TYPES[s.type].icon} ${SECTION_TYPES[s.type].label}</h3>
+    ${body}
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveSiteSection('${pid}','${sid}')">Save</button>
+    </div>`);
+}
+
+function saveSiteSection(pid, sid){
+  const page = siteData().pages.find(p=>p.id===pid);
+  const s = page && page.sections.find(x=>x.id===sid); if(!s) return;
+  const val = id => { const e=document.getElementById(id); return e?e.value:undefined; };
+
+  if(s.type==='hero'){
+    (s.slides||[]).forEach(sl=>{
+      sl.heading = val('sl_h_'+sl.id) ?? sl.heading;
+      sl.sub = val('sl_s_'+sl.id) ?? sl.sub;
+      sl.buttonText = val('sl_bt_'+sl.id) ?? sl.buttonText;
+      sl.buttonPage = val('sl_bp_'+sl.id) ?? sl.buttonPage;
+      sl.videoUrl = val('sl_v_'+sl.id) ?? sl.videoUrl;
+    });
+  } else if(s.type==='cars'){
+    s.title = val('sec_title'); s.showAll = val('sec_showall')==='all';
+    s.limit = Number(val('sec_limit'))||6;
+  } else if(s.type==='text'){
+    s.title = val('sec_title'); s.body = val('sec_body');
+  } else if(['steps','features','reviews'].includes(s.type)){
+    s.title = val('sec_title');
+    (s.items||[]).forEach(it=>{
+      it.title = val('it_t_'+it.id) ?? it.title;
+      it.text  = val('it_d_'+it.id) ?? it.text;
+      const st = val('it_s_'+it.id); if(st) it.stars = Number(st);
+    });
+  } else if(s.type==='video'){
+    s.title = val('sec_title'); s.videoUrl = val('sec_video');
+  } else if(s.type==='cta'){
+    s.title = val('sec_title'); s.buttonText = val('sec_bt'); s.buttonPage = val('sec_bp');
+  } else {
+    if(val('sec_title')!==undefined) s.title = val('sec_title');
+  }
+  touchSite(); saveDB(); closeModal(); render();
+}
+
+/* slides & items */
+function addSlide(pid,sid){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  s.slides.push({id:nextId('sl'), heading:'New slide', sub:'', buttonText:'', buttonPage:'stock', photoId:null, videoUrl:''});
+  touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+function deleteSlide(pid,sid,slid){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  s.slides = s.slides.filter(x=>x.id!==slid); touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+function moveSlide(pid,sid,slid,dir){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  const i = s.slides.findIndex(x=>x.id===slid), j=i+dir;
+  if(j<0||j>=s.slides.length) return;
+  [s.slides[i],s.slides[j]]=[s.slides[j],s.slides[i]];
+  touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+function addItem(pid,sid){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  s.items.push({id:nextId('it'), title:'', text:'', stars:5}); touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+function deleteItem(pid,sid,iid){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  s.items = s.items.filter(x=>x.id!==iid); touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+function moveItem(pid,sid,iid,dir){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  const i = s.items.findIndex(x=>x.id===iid), j=i+dir;
+  if(j<0||j>=s.items.length) return;
+  [s.items[i],s.items[j]]=[s.items[j],s.items[i]];
+  touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+async function uploadSlidePhoto(ev, pid, sid, slid){
+  const f = ev.target.files && ev.target.files[0]; if(!f) return;
+  const blob = await compressImage(f, 1920, 0.82);   // full-width banner
+  const res = await storePhoto(blob);
+  if(!res.ref){ alert("The photo couldn't be saved. Error: " + (res.error||'unknown')); return; }
+  notePhotoFallback(res);
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  const sl = s.slides.find(x=>x.id===slid); sl.photoId = res.ref;
+  touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+async function uploadGalleryPhotos(ev, pid, sid){
+  const files = Array.from(ev.target.files||[]); if(!files.length) return;
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  if(!s.photoIds) s.photoIds = [];
+  for(const f of files){
+    const blob = await compressImage(f, 1400, 0.82);
+    const res = await storePhoto(blob);
+    if(res.ref){ s.photoIds.push(res.ref); notePhotoFallback(res); }
+    else alert("A photo couldn't be saved. Error: " + (res.error||'unknown'));
+  }
+  touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+function removeGalleryPhoto(pid,sid,photoId){
+  const s = siteData().pages.find(p=>p.id===pid).sections.find(x=>x.id===sid);
+  s.photoIds = (s.photoIds||[]).filter(x=>x!==photoId);
+  touchSite(); saveDB(); editSiteSection(pid,sid);
+}
+
+/* ---------- menu ---------- */
+function renderSbMenu(S){
+  return `
+  <div class="small-muted" style="margin-bottom:8px;">The links across the top of your website. Use the arrows to reorder.</div>
+  <div class="card" style="padding:0;">
+    <table><thead><tr><th>Label</th><th>Goes to</th><th></th></tr></thead><tbody>
+    ${S.menu.map((m,i)=>`<tr>
+      <td><input value="${escapeAttr(m.label)}" onchange="updateMenuItem('${m.id}','label',this.value)" style="max-width:200px;"/></td>
+      <td><select onchange="updateMenuItem('${m.id}','page',this.value)">
+        ${S.pages.map(p=>`<option value="${p.id}" ${m.page===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+      </select></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-ghost" onclick="moveMenu('${m.id}',-1)" ${i===0?'disabled':''}>↑</button>
+        <button class="btn btn-sm btn-ghost" onclick="moveMenu('${m.id}',1)" ${i===S.menu.length-1?'disabled':''}>↓</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteMenuItem('${m.id}')">✕</button>
+      </td></tr>`).join('')}
+    </tbody></table>
+  </div>
+  <button class="btn btn-ghost" style="margin-top:10px;" onclick="addMenuItem()">+ Add menu link</button>`;
+}
+function updateMenuItem(id, field, v){
+  const m = siteData().menu.find(x=>x.id===id); if(!m) return;
+  m[field]=v; touchSite(); saveDB();
+}
+function moveMenu(id,dir){
+  const S=siteData(); const i=S.menu.findIndex(m=>m.id===id), j=i+dir;
+  if(j<0||j>=S.menu.length) return;
+  [S.menu[i],S.menu[j]]=[S.menu[j],S.menu[i]]; touchSite(); saveDB(); render();
+}
+function deleteMenuItem(id){
+  const S=siteData(); S.menu=S.menu.filter(m=>m.id!==id); touchSite(); saveDB(); render();
+}
+function addMenuItem(){
+  const S=siteData();
+  S.menu.push({id:nextId('mi'), label:'New link', page:S.pages[0].id});
+  touchSite(); saveDB(); render();
+}
+
+/* ---------- settings ---------- */
+function renderSbSettings(S){
+  const st = S.settings;
+  return `
+  <div class="card">
+    <h3 style="margin-bottom:12px;">Business details</h3>
+    <div class="field-row">
+      <div class="field"><label>Business name</label><input id="st_name" value="${escapeAttr(st.name||'')}" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>Tagline</label><input id="st_tag" value="${escapeAttr(st.tagline||'')}" onchange="saveSiteSettings()"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Phone</label><input id="st_phone" value="${escapeAttr(st.phone||'')}" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>WhatsApp <span class="small-muted">(e.g. 447700900123)</span></label><input id="st_wa" value="${escapeAttr(st.whatsapp||'')}" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>Email</label><input id="st_email" value="${escapeAttr(st.email||'')}" onchange="saveSiteSettings()"/></div>
+    </div>
+    <div class="field"><label>Address</label><textarea id="st_addr" rows="3" onchange="saveSiteSettings()">${escapeHtml((st.address||[]).join('\n'))}</textarea>
+      <div class="small-muted">One line each.</div></div>
+    <div class="field-row">
+      <div class="field"><label>Opening hours</label><input id="st_hours" value="${escapeAttr(st.hours||'')}" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>Google Maps search</label><input id="st_maps" value="${escapeAttr(st.mapsQuery||'')}" placeholder="Car Express Hemel Hempstead" onchange="saveSiteSettings()"/></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 style="margin-bottom:12px;">Social links</h3>
+    <div class="field-row">
+      <div class="field"><label>Facebook</label><input id="st_fb" value="${escapeAttr((st.social||{}).facebook||'')}" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>Instagram</label><input id="st_ig" value="${escapeAttr((st.social||{}).instagram||'')}" onchange="saveSiteSettings()"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>TikTok</label><input id="st_tt" value="${escapeAttr((st.social||{}).tiktok||'')}" onchange="saveSiteSettings()"/></div>
+      <div class="field"><label>YouTube</label><input id="st_yt" value="${escapeAttr((st.social||{}).youtube||'')}" onchange="saveSiteSettings()"/></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 style="margin-bottom:12px;">Colours</h3>
+    <div class="field-row">
+      <div class="field"><label>Main colour</label><input id="st_c1" type="color" value="${st.primaryColour||'#DC2226'}" onchange="saveSiteSettings()" style="height:48px;"/></div>
+      <div class="field"><label>Dark colour</label><input id="st_c2" type="color" value="${st.darkColour||'#17428C'}" onchange="saveSiteSettings()" style="height:48px;"/></div>
+    </div>
+  </div>`;
+}
+function saveSiteSettings(){
+  const S = siteData(), st = S.settings;
+  const v = id => { const e=document.getElementById(id); return e?e.value:undefined; };
+  st.name = v('st_name'); st.tagline = v('st_tag');
+  st.phone = v('st_phone'); st.whatsapp = (v('st_wa')||'').replace(/\D/g,''); st.email = v('st_email');
+  st.address = (v('st_addr')||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  st.hours = v('st_hours'); st.mapsQuery = v('st_maps');
+  st.social = {facebook:v('st_fb'), instagram:v('st_ig'), tiktok:v('st_tt'), youtube:v('st_yt')};
+  st.primaryColour = v('st_c1'); st.darkColour = v('st_c2');
+  touchSite(); saveDB();
+}
+
+/* ---------- publish ---------- */
+function sitePayload(){
+  const S = JSON.parse(JSON.stringify(siteData()));
+  // swap photo ids for public URLs so the website can load them
+  S.pages.forEach(p => p.sections.forEach(sec => {
+    if(sec.slides) sec.slides.forEach(sl => { sl.photo = sl.photoId ? photoUrlSync(sl.photoId) : null; delete sl.photoId; });
+    if(sec.photoIds){ sec.photos = sec.photoIds.map(id=>photoUrlSync(id)).filter(Boolean); delete sec.photoIds; }
+  }));
+  return S;
+}
+async function publishSite(){
+  if(!isManager()) return;
+  const S = siteData();
+  if(!S.settings.phone || !S.settings.whatsapp){
+    if(!confirm("Your phone or WhatsApp number is missing, so customers won't be able to contact you.\n\nPublish anyway?")) return;
+  }
+  try{
+    const {error} = await sb.from('public_site').upsert({
+      id:'site', data: sitePayload(), updated_at: new Date().toISOString()
+    });
+    if(error) throw error;
+    DB.sitePublishedAt = new Date().toISOString();
+    logChange('stock','Published website', {id:'site',label:'Website'}, '', '',
+      S.pages.length + ' pages');
+    saveDB(); render();
+    alert('Website published. Your changes are live within a few seconds.');
+  }catch(e){
+    alert('Could not publish the site.\n\n' + (e.message||e) +
+          '\n\nIf this is the first time, the public_site table may not be set up yet — see WEBSITE-SETUP.md.');
+  }
+}
+function previewSite(){
+  const S = siteData();
+  const page = S.pages.find(p=>p.id===sbPage) || S.pages[0];
+  const w = window.open('','_blank');
+  const st = S.settings;
+  const esc = escapeHtml;
+  const sec = s => {
+    if(s.visible===false) return '';
+    if(s.type==='hero') return (s.slides||[]).map(sl=>`
+      <div style="background:${st.darkColour};color:#fff;padding:60px 24px;text-align:center;
+        ${sl.photoId?`background-image:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('${getPhotoUrl(sl.photoId)}');background-size:cover;background-position:center;`:''}">
+        <h1 style="margin:0 0 10px;font-size:32px;">${esc(sl.heading||'')}</h1>
+        <p style="margin:0 0 18px;opacity:.9">${esc(sl.sub||'')}</p>
+        ${sl.buttonText?`<span style="background:${st.primaryColour};color:#fff;padding:12px 24px;border-radius:4px;display:inline-block;">${esc(sl.buttonText)}</span>`:''}
+      </div>`).join('');
+    if(s.type==='cars') return `<div style="padding:30px 24px;text-align:center;background:#f4f6fa">
+      <h2>${esc(s.title||'Cars')}</h2><p style="color:#667">${s.showAll?'A few cars with a view-all button':'Every available car'} — pulled live from your stock</p></div>`;
+    if(s.type==='text') return `<div style="padding:30px 24px;"><h2>${esc(s.title||'')}</h2>
+      ${(s.body||'').split('\\n\\n').map(p=>`<p>${esc(p)}</p>`).join('')}</div>`;
+    if(s.type==='steps'||s.type==='features') return `<div style="padding:30px 24px;background:#f4f6fa">
+      <h2>${esc(s.title||'')}</h2>${(s.items||[]).map((it,i)=>`<div style="margin:14px 0;">
+      <strong style="color:${st.primaryColour}">${s.type==='steps'?('Step '+(i+1)):''}</strong>
+      <div style="font-weight:700">${esc(it.title||'')}</div><div style="color:#667">${esc(it.text||'')}</div></div>`).join('')}</div>`;
+    if(s.type==='reviews') return `<div style="padding:30px 24px;"><h2>${esc(s.title||'Reviews')}</h2>
+      ${(s.items||[]).map(it=>`<div style="border:1px solid #ddd;border-radius:8px;padding:14px;margin:10px 0;">
+      <div style="color:#E8B33A">${'★'.repeat(Number(it.stars||5))}</div><p>${esc(it.text||'')}</p>
+      <div style="color:#667">— ${esc(it.title||'')}</div></div>`).join('')}</div>`;
+    if(s.type==='gallery') return `<div style="padding:30px 24px;background:#f4f6fa"><h2>${esc(s.title||'Gallery')}</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;">
+      ${(s.photoIds||[]).map(id=>`<img src="${getPhotoUrl(id)}" style="width:100%;height:100px;object-fit:cover;border-radius:6px;">`).join('')}</div></div>`;
+    if(s.type==='video') return `<div style="padding:30px 24px;text-align:center;"><h2>${esc(s.title||'Video')}</h2>
+      <div style="background:#000;color:#fff;padding:50px;border-radius:8px;">${s.videoUrl?esc(s.videoUrl):'No video set'}</div></div>`;
+    if(s.type==='cta') return `<div style="padding:40px 24px;text-align:center;background:${st.primaryColour};color:#fff;">
+      <h2 style="color:#fff">${esc(s.title||'')}</h2>
+      ${s.buttonText?`<span style="background:#fff;color:${st.primaryColour};padding:12px 24px;border-radius:4px;display:inline-block;font-weight:700;">${esc(s.buttonText)}</span>`:''}</div>`;
+    if(s.type==='contact') return `<div style="padding:30px 24px;background:${st.darkColour};color:#fff;">
+      <h2 style="color:#fff">${esc(s.title||'Get in touch')}</h2>
+      <p>📞 ${esc(st.phone||'—')}<br>✉️ ${esc(st.email||'—')}<br>📍 ${esc((st.address||[]).join(', '))}</p>
+      <p style="opacity:.8">${esc(st.hours||'')}</p></div>`;
+    return '';
+  };
+  w.document.write(`<html><head><title>Preview — ${esc(page?page.name:'')}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{margin:0;font-family:system-ui,sans-serif;line-height:1.6}h1,h2{font-family:system-ui}</style></head><body>
+    <div style="background:${st.darkColour};color:#fff;padding:12px 18px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+      <strong>${esc(st.name||'')}</strong>
+      ${S.menu.map(m=>`<span style="opacity:.85;font-size:14px">${esc(m.label)}</span>`).join('')}
+    </div>
+    <div style="background:#FFF3CD;padding:8px 18px;font-size:13px;">Preview of <b>${esc(page?page.name:'')}</b> — this is a rough guide, the live site uses your full template design.</div>
+    ${page ? page.sections.map(sec).join('') : ''}
+  </body></html>`);
+  w.document.close();
+}
+
+
+/* =========================================================================
+   PHOTO & VIDEO GUIDE — what to upload where, and how to shoot it.
+   ========================================================================= */
+const MEDIA_SPECS = {
+  vehicle: {
+    title:'Car photos',
+    where:'Vehicle → Issues &amp; Photos',
+    size:'1600 × 1200 or larger (landscape)',
+    ratio:'4:3 landscape — hold the phone sideways',
+    weight:'Any size; the app shrinks it to 1600px wide',
+    format:'JPG or HEIC straight from your phone',
+    notes:'The first photo becomes the main image everywhere — on the website, the stock list and the car page. Make it the best one.'
+  },
+  hero: {
+    title:'Website banner (hero slide)',
+    where:'Website → Hero slider',
+    size:'1920 × 1080 minimum (landscape)',
+    ratio:'16:9 wide',
+    weight:'Shrunk to 1920px wide',
+    format:'JPG',
+    notes:'Text sits over this image, so leave space and avoid a busy middle. A wide shot of your forecourt works well.'
+  },
+  gallery: {
+    title:'Website gallery photos',
+    where:'Website → Photo gallery',
+    size:'1400 × 1000 or larger',
+    ratio:'4:3 or 16:9, all the same shape',
+    weight:'Shrunk to 1400px wide',
+    format:'JPG',
+    notes:'Mixing portrait and landscape makes the grid look untidy. Pick one and stick to it.'
+  },
+  receipt: {
+    title:'Receipts &amp; invoices',
+    where:'Log my spend / Cost &amp; invoice',
+    size:'Whatever your phone takes',
+    ratio:'Any',
+    weight:'Shrunk automatically',
+    format:'JPG or PDF',
+    notes:'Flat, well lit, all four corners in shot. It only needs to be readable.'
+  },
+  logo: {
+    title:'Logo',
+    where:'Branding',
+    size:'At least 800px wide',
+    ratio:'Whatever the logo is',
+    weight:'Under 1 MB',
+    format:'PNG with a transparent background, or SVG',
+    notes:'A JPG logo carries a white box behind it. Ask your designer for PNG or SVG.'
+  },
+  video: {
+    title:'Video',
+    where:'Website → Video section',
+    size:'1080p (1920 × 1080)',
+    ratio:'16:9 landscape',
+    weight:'YouTube link preferred; direct MP4 under 30 MB',
+    format:'MP4 (H.264), or a YouTube link',
+    notes:'Upload to YouTube and paste the link. Videos stored directly are slow to load and eat your storage.'
+  },
+  spin: {
+    title:'360° spin',
+    where:'360° View page',
+    size:'1200 × 900 each',
+    ratio:'4:3, identical for every frame',
+    weight:'Under 300 KB each',
+    format:'JPG, named car-1.jpg to car-24.jpg',
+    notes:'24 photos at even intervals around the car. The camera must not move — only the car. Realistically this needs a turntable.'
+  }
+};
+
+const SHOT_LIST = [
+  'Front three-quarter (the main photo — front and one side visible)',
+  'Rear three-quarter from the opposite corner',
+  'Straight side profile',
+  'Straight front',
+  'Straight rear',
+  'Interior from the driver\u2019s door, showing seats and dash',
+  'Dashboard with the mileage clearly readable',
+  'Rear seats',
+  'Boot space, empty',
+  'One wheel, showing tyre condition',
+  'Engine bay',
+  'Service book or history',
+  'Any damage, honestly — a scuff shown upfront prevents a complaint later'
+];
+
+function openMediaGuide(which){
+  const rows = Object.entries(MEDIA_SPECS).map(([k,s])=>`
+    <div class="card" style="padding:14px;margin-bottom:8px;${which===k?'border:2px solid var(--brand);':''}">
+      <div style="font-weight:700;font-size:15px;">${s.title}</div>
+      <div class="small-muted" style="margin-bottom:8px;">${s.where}</div>
+      <table style="font-size:13.5px;">
+        <tr><td style="width:96px;color:var(--grey)">Size</td><td><b>${s.size}</b></td></tr>
+        <tr><td style="color:var(--grey)">Shape</td><td>${s.ratio}</td></tr>
+        <tr><td style="color:var(--grey)">File size</td><td>${s.weight}</td></tr>
+        <tr><td style="color:var(--grey)">Format</td><td>${s.format}</td></tr>
+      </table>
+      <div style="margin-top:8px;font-size:13.5px;">${s.notes}</div>
+    </div>`).join('');
+
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>📷 Photo &amp; video guide</h3>
+    <div class="small-muted" style="margin-bottom:12px;">
+      The app shrinks photos automatically, so you can upload straight from your phone.
+      These are the sizes worth aiming for so nothing looks soft on a big screen.
+    </div>
+
+    <div class="card" style="background:var(--brand-dim);box-shadow:none;padding:14px;margin-bottom:12px;">
+      <div style="font-weight:700;margin-bottom:6px;">The four that matter most</div>
+      <ul style="margin:0;padding-left:18px;font-size:13.5px;line-height:1.7;">
+        <li><b>Landscape, always.</b> Turn the phone sideways. Portrait photos crop badly on the website.</li>
+        <li><b>Bright, overcast days are best.</b> Direct sun creates hard shadows and blown-out panels.</li>
+        <li><b>Clean the car first.</b> It makes more difference than any camera setting.</li>
+        <li><b>Plain background.</b> Park away from bins, other cars and clutter.</li>
+      </ul>
+    </div>
+
+    <div style="font-weight:700;margin:14px 0 8px;">Shot list for every car</div>
+    <div class="card" style="padding:14px;margin-bottom:12px;">
+      <ol style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.8;">
+        ${SHOT_LIST.map(s=>`<li>${s}</li>`).join('')}
+      </ol>
+      <div class="small-muted" style="margin-top:10px;">
+        Around 12 photos is the sweet spot. Fewer looks like you're hiding something; many more and buyers stop scrolling.
+      </div>
+    </div>
+
+    <div style="font-weight:700;margin:14px 0 8px;">Sizes by type</div>
+    ${rows}
+
+    <div class="card" style="background:var(--amber-dim);box-shadow:none;padding:14px;">
+      <div style="font-weight:700;margin-bottom:6px;">Worth knowing</div>
+      <div style="font-size:13.5px;line-height:1.7;">
+        Photos are compressed when you upload, so a 5 MB phone photo becomes a few hundred KB.
+        That keeps the app quick and the website fast. It also means uploading a tiny photo
+        can't be undone &mdash; it stays small. When in doubt, upload the bigger version.
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-brand" onclick="closeModal()">Got it</button>
+    </div>`);
+}
+
+
+/* =========================================================================
+   CASH FLOAT — money handed to staff up front (e.g. £1,000 for parts).
+   Spends logged against the float reduce it; the balance shows what's left,
+   or what the company owes them if they've gone over.
+   ========================================================================= */
+
+function floats(){ return DB.floats || []; }
+function floatsFor(email){ return floats().filter(f=>f.userEmail===email); }
+
+/* Spends paid out of the float, rather than the person's own pocket. */
+function floatSpends(email){
+  return (DB.expenses||[]).filter(e=>e.userEmail===email && e.fundedBy==='float');
+}
+function floatPosition(email){
+  const received = floatsFor(email).reduce((s,f)=>s+(Number(f.amount)||0),0);
+  const returned = floatsFor(email).filter(f=>f.type==='return')
+                    .reduce((s,f)=>s+(Number(f.amount)||0),0);
+  const spent = floatSpends(email).reduce((s,e)=>s+(Number(e.amount)||0),0);
+  // "received" already includes returns as negative amounts, so don't subtract twice
+  return {received, spent, balance: received - spent, returned};
+}
+function floatPeople(){
+  const set = new Set();
+  floats().forEach(f=>set.add(f.userEmail));
+  (DB.expenses||[]).filter(e=>e.fundedBy==='float').forEach(e=>set.add(e.userEmail));
+  return [...set].filter(Boolean);
+}
+function nameForEmail(email){
+  const m = (DB.team||[]).find(t=>t.email===email);
+  if(m) return m.name;
+  const f = floats().find(x=>x.userEmail===email);
+  if(f) return f.userName || email;
+  const e = (DB.expenses||[]).find(x=>x.userEmail===email);
+  return (e && (e.employee||e.userName)) || email;
+}
+
+function floatSection(){
+  const people = floatPeople();
+  const totalOut = people.reduce((s,p)=>s+floatPosition(p).balance,0);
+  return `
+  <div class="section-title"><h2>Money given to staff</h2>
+    ${isManager()?`<button class="btn btn-sm btn-brand" onclick="openGiveFloat()">+ Give money</button>`:''}
+  </div>
+  <div class="card" style="padding:0;margin-bottom:16px;">
+    ${people.length ? `<table><thead><tr><th>Person</th><th>Given</th><th>Spent</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>
+      ${people.map(p=>{ const f = floatPosition(p);
+        const neg = f.balance < 0;
+        return `<tr>
+          <td><b>${escapeHtml(nameForEmail(p))}</b></td>
+          <td>${fmtMoney(f.received)}</td>
+          <td>${fmtMoney(f.spent)}</td>
+          <td style="font-weight:700;color:${neg?'var(--red)':(f.balance>0?'var(--ink)':'var(--green)')}">${neg?'&minus; ':''}${fmtMoney(Math.abs(f.balance))}</td>
+          <td>${neg
+              ? `<span class="tag tag-red">Company owes ${fmtMoney(Math.abs(f.balance))}</span>`
+              : (f.balance>0 ? `<span class="tag tag-amber">${fmtMoney(f.balance)} still held</span>`
+                             : `<span class="tag tag-green">Settled</span>`)}</td>
+          <td><button class="btn btn-sm btn-ghost" onclick="openFloatDetail('${escapeAttr(p)}')">History</button></td>
+        </tr>`;}).join('')}
+      <tr style="border-top:2px solid var(--ink)">
+        <td style="font-weight:700">Total held by staff</td><td></td><td></td>
+        <td style="font-weight:700;color:${totalOut<0?'var(--red)':'inherit'}">${fmtMoney(totalOut)}</td><td colspan="2"></td></tr>
+    </tbody></table>`
+    : `<div class="empty">No money handed out yet. Use "Give money" when you hand someone cash for parts or fuel.</div>`}
+  </div>`;
+}
+
+function openGiveFloat(){
+  if(!isManager()) return;
+  const team = (DB.team||[]).filter(t=>t.email);
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Give money to staff</h3>
+    <div class="small-muted" style="margin-bottom:12px;">
+      Records cash or a transfer handed over for parts, fuel or other costs.
+      Their spends come off this, and the balance shows what's left.
+    </div>
+    <div class="field"><label>Who *</label>
+      <select id="gf_person">
+        ${team.map(t=>`<option value="${escapeAttr(t.email)}">${escapeHtml(t.name)}</option>`).join('')}
+      </select></div>
+    <div class="field-row">
+      <div class="field"><label>Amount (£) *</label><input id="gf_amount" type="number" step="0.01" placeholder="1000"/></div>
+      <div class="field"><label>Date</label><input id="gf_date" type="date" value="${todayISO()}"/></div>
+    </div>
+    <div class="field"><label>Given as</label>
+      <select id="gf_method"><option>Cash</option><option>Bank transfer</option><option>Company card</option></select></div>
+    <div class="field"><label>What it's for</label><input id="gf_note" placeholder="e.g. parts for the Fiesta and Corsa"/></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveFloat('give')">Record</button>
+    </div>`);
+}
+
+function openReturnFloat(email){
+  if(!isManager()) return;
+  const f = floatPosition(email);
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Money returned</h3>
+    <div class="small-muted" style="margin-bottom:12px;">
+      ${escapeHtml(nameForEmail(email))} currently holds <b>${fmtMoney(f.balance)}</b>.
+      Record what they've handed back.
+    </div>
+    <input type="hidden" id="gf_person" value="${escapeAttr(email)}"/>
+    <div class="field-row">
+      <div class="field"><label>Amount returned (£) *</label><input id="gf_amount" type="number" step="0.01" value="${f.balance>0?f.balance.toFixed(2):''}"/></div>
+      <div class="field"><label>Date</label><input id="gf_date" type="date" value="${todayISO()}"/></div>
+    </div>
+    <div class="field"><label>Returned as</label>
+      <select id="gf_method"><option>Cash</option><option>Bank transfer</option></select></div>
+    <div class="field"><label>Note</label><input id="gf_note" placeholder="optional"/></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveFloat('return')">Record return</button>
+    </div>`);
+}
+
+function saveFloat(kind){
+  if(!isManager()) return;
+  const email = document.getElementById('gf_person').value;
+  const amt = Number(document.getElementById('gf_amount').value)||0;
+  if(!email){ alert('Choose who the money is for.'); return; }
+  if(amt<=0){ alert('Enter an amount greater than zero.'); return; }
+  if(!DB.floats) DB.floats = [];
+  const signed = kind==='return' ? -amt : amt;
+  DB.floats.push({
+    id: nextId('float'), userEmail: email, userName: nameForEmail(email),
+    amount: signed, type: kind, date: document.getElementById('gf_date').value || todayISO(),
+    method: document.getElementById('gf_method').value,
+    note: document.getElementById('gf_note').value.trim(), givenBy: currentUserName
+  });
+  logChange('money', kind==='return' ? 'Money returned by' : 'Gave money to',
+    {id:email, label:nameForEmail(email)}, 'Amount', '', fmtMoney(amt),
+    document.getElementById('gf_method').value + (document.getElementById('gf_note').value?' · '+document.getElementById('gf_note').value:''));
+  saveDB(); closeModal(); render();
+}
+
+function deleteFloat(id){
+  if(!isSuperAdmin()) return;
+  const f = floats().find(x=>x.id===id); if(!f) return;
+  if(!confirm('Delete this entry?')) return;
+  logChange('money','Deleted money entry for', {id:f.userEmail,label:f.userName}, '', fmtMoney(Math.abs(f.amount)), '', f.note||'');
+  DB.floats = floats().filter(x=>x.id!==id);
+  saveDB(); closeModal(); render();
+}
+
+/* Full history for one person: money in, money spent, running balance. */
+function openFloatDetail(email){
+  const f = floatPosition(email);
+  const rows = [];
+  floatsFor(email).forEach(x=>rows.push({
+    date:x.date, kind: x.amount<0 ? 'Returned' : 'Given',
+    detail: (x.method||'') + (x.note?' · '+x.note:''), in: x.amount>0?x.amount:0,
+    out: x.amount<0?-x.amount:0, id:x.id, isFloat:true
+  }));
+  floatSpends(email).forEach(e=>rows.push({
+    date:e.date, kind:'Spent', detail: e.note||e.description||'', in:0, out:Number(e.amount)||0, id:e.id
+  }));
+  rows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  let run = 0;
+  const body = rows.map(r=>{
+    run += (r.in||0) - (r.out||0);
+    return `<tr>
+      <td>${fmtDate(r.date)}</td>
+      <td><span class="tag ${r.kind==='Given'?'tag-green':(r.kind==='Spent'?'tag-amber':'tag-grey')}">${r.kind}</span></td>
+      <td>${escapeHtml(r.detail)}</td>
+      <td>${r.in?fmtMoney(r.in):''}</td>
+      <td>${r.out?fmtMoney(r.out):''}</td>
+      <td style="font-weight:700;color:${run<0?'var(--red)':'inherit'}">${fmtMoney(run)}</td>
+      <td>${(r.isFloat && isSuperAdmin())?`<button class="btn btn-sm btn-danger" onclick="deleteFloat('${r.id}')">✕</button>`:''}</td>
+    </tr>`;}).join('');
+
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>${escapeHtml(nameForEmail(email))} — money held</h3>
+    <div class="grid kpi-grid" style="margin-bottom:12px;">
+      <div class="card kpi"><div class="label">Given</div><div class="value small">${fmtMoney(f.received)}</div></div>
+      <div class="card kpi"><div class="label">Spent</div><div class="value small">${fmtMoney(f.spent)}</div></div>
+      <div class="card kpi"><div class="label">Balance</div>
+        <div class="value small" style="color:${f.balance<0?'var(--red)':'inherit'}">${fmtMoney(f.balance)}</div>
+        <div class="sub">${f.balance<0?'Company owes them':(f.balance>0?'Still holding':'Settled')}</div></div>
+    </div>
+    ${rows.length?`<div class="card" style="padding:0;"><table>
+      <thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>In</th><th>Out</th><th>Balance</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div>`:'<div class="empty">Nothing recorded yet.</div>'}
+    <div class="modal-actions">
+      ${isManager()?`<button class="btn btn-ghost" onclick="openReturnFloat('${escapeAttr(email)}')" style="margin-right:auto">Record money returned</button>`:''}
+      <button class="btn btn-brand" onclick="closeModal()">Close</button>
+    </div>`);
+}
+
+
+/* =========================================================================
+   ONE-TIME IMPORT — stock sheet of 21/09/2026.
+   Adds only vehicles not already in the app, creates the Muzarib accounts,
+   and maps the daily book costs into the right categories.
+   ========================================================================= */
+const SHEET_IMPORT = {"cars":[{"r":"FV62 BFF","mk":"SUZUKI","md":"SUZUKI GRAND VITARA 2.4","cl":"","mi":0,"dt":null,"ow":"Noori","sn":55,"c":{"purchase":1605.0,"delivery":140.0},"w":[{"d":"Recovery","a":140.0,"t":null}]},{"r":"PN12 FFC","mk":"HYUNDAI","md":"I40","cl":"SILVER","mi":109437,"dt":"2024-12-02","ow":"Noori","sn":69,"c":{"purchase":300.0},"w":[]},{"r":"KM62 JSX","mk":"Peugeot","md":"Bipper Professional","cl":"WHITE","mi":123000,"dt":"2024-12-27","ow":null,"sn":70,"c":{"purchase":400.0,"service":252.0},"w":[{"d":"LABOUR FOR INJECTOR, FULL SERVICE","a":252.0,"t":"2024-12-31"}]},{"r":"MK07 NFL","mk":"VAUXHALL","md":"TIGRA","cl":"RED","mi":51247,"dt":"2024-01-01","ow":null,"sn":73,"c":{"purchase":270.0,"service":144.0,"mechanical":276.98},"w":[{"d":"FULL SERVICE","a":144.0,"t":"2025-01-20"},{"d":"2006 VAUXHALL TIGRA B CONVERTIBLE SUNROOF SUN ROOF MOTOR 9316253102","a":56.98,"t":"2026-04-07"},{"d":"VAUXHALL TIGRA B 04-09 HYDRAULIC ROOF PUMP 93162375 #PT1","a":140.0,"t":"2026-04-23"},{"d":"CONVTIBLE HYDROLIC MACHINE","a":80.0,"t":"2026-05-05"}],"p":1900,"va":"Vauxhall Tigra 1.4i 16v 2dr","dy":623,"pi":"No analysis"},{"r":"SD57 YJF","mk":"MINI","md":"COOPER","cl":"WHITE","mi":68292,"dt":"2025-01-15","ow":null,"sn":92,"c":{"purchase":740.96,"service":144.0,"other":104.88},"w":[{"d":"FULL SERVICE","a":144.0,"t":"2025-01-20"},{"d":"WARRANTY","a":104.88,"t":"2025-10-08"}]},{"r":"DY55 FEP","mk":"PEUGEOT","md":"307 1.6","cl":"Silver","mi":96884,"dt":"2025-04-01","ow":"Noori","sn":132,"c":{"purchase":378.0,"delivery":140.0},"w":[{"d":"Delivery cost","a":140.0,"t":"2025-04-05"}]},{"r":"EE51 JOE","mk":"LAND ROVER","md":"RANGE ROVER EVOQUE","cl":"GREY","mi":60000,"dt":"2025-03-25","ow":"Noori","sn":133,"c":{"purchase":1119.0},"w":[]},{"r":"AV55 LDX","mk":"FORD","md":"FIESTA","cl":"BLUE","mi":200000,"dt":"2025-05-22","ow":null,"sn":144,"c":{"purchase":150.0},"w":[]},{"r":"RO59 CZB","mk":"Volkswagen","md":"Polo","cl":"Red","mi":105590,"dt":"2025-05-25","ow":"Noori","sn":147,"c":{"purchase":1275.0,"other":141.36},"w":[]},{"r":"SL67 RMZ","mk":"FORD","md":"C MAX","cl":"BLUE","mi":27537,"dt":"2025-06-24","ow":"Zahir","sn":157,"c":{"purchase":6357.8,"bodywork":350.0,"mechanical":80.0,"fuel":71.05},"w":[{"d":"BOOST","a":36.25,"t":"2025-10-10"},{"d":"BOOST","a":14.5,"t":"2025-09-07"},{"d":"BOOST","a":20.3,"t":"2025-08-22"},{"d":"Bodywork","a":350.0,"t":"2025-10-30"},{"d":"BELT INSPECTION","a":80.0,"t":"2026-06-19"}]},{"r":"KU05 OGN","mk":"FORD","md":"FOCUS","cl":"SILVER","mi":112070,"dt":"2025-11-20","ow":null,"sn":215,"c":{"purchase":100.0},"w":[]},{"r":"WM60 ELO","mk":"MERCEDES","md":"-BENZ A160","cl":"SILVER","mi":90450,"dt":"2026-03-08","ow":"Abdullah","sn":262,"c":{"purchase":829.0,"delivery":140.0},"w":[{"d":"recover cost","a":140.0,"t":"2026-03-19"}],"p":1950,"va":"Mercedes-Benz A Class 1.5 A160 BlueEfficiency Classic","dy":200,"pi":"No analysis"},{"r":"PN13 HBU","mk":"VOLKSWAGEN","md":"GOLF","cl":"BLACK","mi":89976,"dt":"2026-03-23","ow":"Zahir","sn":270,"c":{"purchase":4514.0,"delivery":140.0,"bodywork":422.53,"mechanical":294.0},"w":[{"d":"recovery cost","a":140.0,"t":"2026-03-26"},{"d":"Bodywork","a":360.0,"t":"2026-04-21"},{"d":"WHEEL AARCH","a":21.99,"t":"2026-04-13"},{"d":"FRRONT BUMPER FOG LLIHT","a":6.79,"t":"2026-04-13"},{"d":"GRILL","a":12.0,"t":"2026-04-13"},{"d":"Inner Wheel Arch Liner Splash Guard Front Right - VW Golf Mk7 2013-17","a":21.75,"t":"2026-04-20"},{"d":"multipale tasks","a":175.0,"t":"2026-04-20"},{"d":"DIAGNOSTIC CHECK","a":72.0,"t":"2026-05-06"},{"d":"SCREEN","a":47.0,"t":"2026-08-16"}],"p":6500,"va":"Volkswagen Golf 1.6 TDI BlueMotion Tech SE DSG Euro 5","dy":166,"rv":6248,"pi":"Fair price"},{"r":"WR65 EDP","mk":"FIAT","md":"500","cl":"White","mi":82295,"dt":"2026-05-12","ow":"Ansar","sn":296,"c":{"purchase":2179.0,"delivery":140.0,"mechanical":255.5},"w":[{"d":"","a":30.0,"t":null},{"d":"RECOVERY COST","a":140.0,"t":null},{"d":"COIL SPRING, DROP LINK AND TOP MOUNT + LABOUR","a":225.5,"t":"2026-06-19"}],"p":3900,"va":"Fiat 500 1.2 Cult Euro 6 3dr","dy":119,"rv":3698,"pi":"Fair price"},{"r":"DK15 HYC","mk":"VAUXHALL","md":"CORSA","cl":"BROWN","mi":57430,"dt":"2026-05-12","ow":"Ibrahim","sn":298,"c":{"purchase":3865.0,"delivery":140.0,"service":92.62,"bodywork":440.0,"mechanical":223.45},"w":[{"d":"BODY WORK","a":440.0,"t":"2026-06-08"},{"d":"RECOVERY COST","a":140.0,"t":null},{"d":"FULL SERVICE","a":92.62,"t":"2026-06-01"},{"d":"MULTIPLE TASTS","a":223.45,"t":"2026-09-07"}]},{"r":"HK10 FUP","mk":"FORD","md":"KA","cl":"blue","mi":47364,"dt":"2026-06-11","ow":"Abdullah","sn":309,"c":{"purchase":1413.0,"delivery":60.0,"service":65.0,"mot":62.0},"w":[{"d":"SERVICE","a":65.0,"t":"2026-06-19"},{"d":"RECOVERY COST","a":60.0,"t":"2026-06-12"},{"d":"MOT AND PLATE BULB","a":62.0,"t":"2026-08-26"}]},{"r":"DF16 XMX","mk":"NISSAN","md":"JUKE","cl":"BLACK","mi":54009,"dt":"2026-06-09","ow":"Waheed","sn":315,"c":{"purchase":4484.0,"delivery":220.0,"bodywork":120.0,"mechanical":131.0},"w":[{"d":"RECOVERY COST","a":220.0,"t":null},{"d":"FRONT CENTRE CONSOLE ARMREST","a":131.0,"t":"2026-06-19"},{"d":"BODY WORK","a":120.0,"t":null}],"p":6300,"va":"Nissan Juke 1.5 dCi Tekna Euro 6 (s/s) 5dr","dy":112,"rv":6039,"pi":"Fair price"},{"r":"DL14 VNX","mk":"FORD","md":"Kuga","cl":"GREY","mi":98712,"dt":"2026-07-08","ow":null,"sn":319,"c":{"purchase":1667.0,"delivery":220.0},"w":[{"d":"RECOVERY","a":220.0,"t":"2026-07-12"}]},{"r":"YM63 BYZ","mk":"FORD","md":"Kuga","cl":"BLUE","mi":94165,"dt":"2026-08-03","ow":"Yaqoob","sn":336,"c":{"purchase":1552.0,"delivery":90.0,"mechanical":494.35},"w":[{"d":"RECOVERY COST","a":90.0,"t":"2026-08-20"},{"d":"MULTIPLE TASKS","a":494.35,"t":"2026-08-08"}],"p":3850,"va":"Ford Kuga 2.0 TDCi Zetec 2WD Euro 5 5dr","dy":55,"rv":3798,"pi":"Good price"},{"r":"DP65 KLD","mk":"NISSAN","md":"QASHQAI","cl":"GREY","mi":99875,"dt":"2026-08-03","ow":"Dr Naseer","sn":337,"c":{"purchase":2817.0,"delivery":220.0},"w":[{"d":"RECOVERY","a":220.0,"t":"2026-08-04"}],"p":4950,"va":"Nissan Qashqai 1.6 dCi n-tec+ 2WD Euro 6 (s/s) 5dr","dy":49,"rv":5049,"pi":"Good price"},{"r":"SV63 YVE","mk":"VW","md":"POLO","cl":"GREY","mi":101905,"dt":"2026-08-06","ow":"Ibrahim","sn":341,"c":{"purchase":2279.0,"delivery":120.0,"mechanical":114.86},"w":[{"d":"RECOVERY","a":120.0,"t":"2026-08-08"},{"d":"MULTIPLE TASKS","a":114.86,"t":"2026-08-17"}],"p":4350,"va":"Volkswagen Polo 1.4 Match Edition Euro 5 5dr","dy":54,"rv":4298,"pi":"Good price"},{"r":"DN11 EOH","mk":"VAUXHALL","md":"CORSA","cl":"SILVER","mi":89540,"dt":"2026-08-06","ow":null,"sn":342,"c":{"purchase":369.0,"delivery":50.0},"w":[{"d":"RECOVERY","a":50.0,"t":"2026-08-08"}]},{"r":"FL14 LFY","mk":"TOYOTA","md":"AYGO","cl":"Black","mi":77319,"dt":"2026-08-07","ow":"Wardak","sn":345,"c":{"purchase":1900.0,"delivery":140.0,"mechanical":317.21},"w":[{"d":"RECOVERY","a":140.0,"t":"2026-08-08"},{"d":"CLUTCH KIT, LABOUR, GEARBOX OIL","a":317.21,"t":"2026-09-19"}],"p":3395,"va":"Toyota Aygo 1.0 VVT-i Mode Euro 5 5dr","dy":44,"rv":3332,"pi":"Good price"},{"r":"EN15 DKE","mk":"FORD","md":"Kuga","cl":"WHITE","mi":95848,"dt":"2026-08-08","ow":null,"sn":347,"c":{"purchase":3565.0,"delivery":120.0},"w":[{"d":"RECOVERY","a":120.0,"t":"2026-08-08"}],"p":6300,"va":"Ford Kuga 1.5T EcoBoost Titanium X Sport Auto AWD","dy":49,"rv":6354,"pi":"Good price"},{"r":"FH62 UUR","mk":"VAUXHALL","md":"INSIGNIA","cl":"SILVER","mi":89000,"dt":"2026-08-18","ow":"Wardak","sn":351,"c":{"purchase":1692.0,"delivery":110.0},"w":[{"d":"RECOVERY COST","a":110.0,"t":"2026-08-20"}],"p":2700,"va":"Vauxhall Insignia 2.0 CDTi SRi Auto Euro 5 5dr","dy":30,"rv":2675,"pi":"Good price"},{"r":"FL61 NPC","mk":"FORD","md":"FIESTA","cl":"White","mi":80650,"dt":"2026-08-27","ow":"Ibrahim","sn":353,"c":{"purchase":1388.0,"delivery":140.0,"mechanical":122.0},"w":[{"d":"RECOVERY COST","a":140.0,"t":"2026-08-20"},{"d":"MULTIPLE TASKS","a":122.0,"t":"2026-09-18"}],"p":2750,"va":"Ford Fiesta 1.25 Zetec 3dr","dy":30,"rv":2683,"pi":"Good price"},{"r":"BF16 VXR","mk":"FORD","md":"FOCUS","cl":"BLACK","mi":86320,"dt":"2026-08-27","ow":"Wardak","sn":355,"c":{"purchase":1717.0,"delivery":140.0,"bodywork":30.0},"w":[{"d":"RECOVERY COST","a":140.0,"t":"2026-08-20"},{"d":"DENT","a":30.0,"t":"2026-09-05"}],"p":3950,"va":"Ford Focus 1.0T EcoBoost Zetec Euro 6 (s/s) 5dr","dy":30,"rv":3861,"pi":"Good price"},{"r":"FV10 JWE","mk":"HONDA","md":"JAZZ","cl":"BLUE","mi":80500,"dt":"2026-08-27","ow":"Abdul Sami","sn":357,"c":{"purchase":2462.0,"delivery":120.0,"mechanical":95.5},"w":[{"d":"HONDA BOOT LOCK","a":29.5,"t":"2026-09-03"},{"d":"RECOVERY","a":120.0,"t":"2026-09-01"},{"d":"BOOT LOCK FIXED","a":42.0,"t":"2026-09-11"},{"d":"WING MIRROR REPLACEMENT","a":24.0,"t":"2026-09-17"}],"p":4150,"va":"Honda Jazz 1.4 i-VTEC EX i-SHIFT Euro 4 5dr","dy":30,"rv":4121,"pi":"No analysis"},{"r":"HG17 ZYT","mk":"VAUXHALL","md":"ASTRA","cl":"","mi":76100,"dt":"2026-08-31","ow":null,"sn":359,"c":{"purchase":2179.0},"w":[],"p":4900,"va":"Vauxhall Astra 1.0i Turbo ecoFLEX SRi Euro 6 (s/s) 5dr","dy":23,"rv":4866,"pi":"Good price"},{"r":"VO60 LGC","mk":"VW Polo","md":"POLO","cl":"RED","mi":78321,"dt":"2026-08-31","ow":"Niaz","sn":360,"c":{"purchase":2279.0},"w":[]},{"r":"FE64 YCZ","mk":"FORD","md":"FOCUS","cl":"White","mi":47033,"dt":"2026-09-19","ow":"Waheed","sn":361,"c":{"purchase":3126.0},"w":[]},{"r":"LIG 9033","mk":"FORD","md":"FIESTA","cl":"BLUE","mi":93419,"dt":"2026-08-18","ow":null,"sn":366,"c":{"purchase":2025.0,"delivery":220.0,"mechanical":326.98},"w":[{"d":"RECOVERY COST","a":220.0,"t":"2026-08-20"},{"d":"MULTIPLE TASKS","a":326.98,"t":"2026-08-28"}],"p":3650,"va":"Ford Fiesta 1.4 Titanium 3dr","dy":37,"pi":"No analysis"},{"r":"CV57 VGU","mk":"VUAXHALL","md":"CORSA","cl":"Silver","mi":87708,"dt":"2026-09-07","ow":"Abdul Sami","sn":367,"c":{"purchase":692.0,"delivery":220.0,"mechanical":358.34},"w":[{"d":"RECOVERY","a":220.0,"t":"2026-09-10"},{"d":"DOOR OPEN HANDLE AND BIAREN 2x Rear Tailgate Boot Gas Struts","a":37.1,"t":"2026-09-14"},{"d":"MULTIPLE TASKS","a":321.24,"t":"2026-09-16"}],"p":2700,"va":"Vauxhall Corsa 1.2i 16v SXi 3dr","dy":6,"pi":"No analysis"},{"r":"CA64 DXT","mk":"CITROEN","md":"C4 CACTUS","cl":"Silver","mi":60342,"dt":"2026-09-07","ow":"Abdullah","sn":369,"c":{"purchase":3074.0,"delivery":220.0},"w":[{"d":"RECOVERY","a":220.0,"t":"2026-09-10"}]},{"r":"EA14 TVW","mk":"HYUNDAI","md":"I10 1.2 COMFORT Hatchback","cl":"White","mi":72697,"dt":"2026-08-31","ow":"Wardak","sn":370,"c":{"purchase":1975.0,"delivery":200.0},"w":[{"d":"RECOVERY","a":200.0,"t":"2026-09-10"}],"p":4250,"va":"Hyundai i10 1.2 SE Euro 5 5dr","dy":23,"rv":4387,"pi":"Great price"},{"r":"ND16 NMM","mk":"FORD","md":"FIESTA","cl":"BROWN","mi":46916,"dt":"2026-09-19","ow":"Abdul Sami","sn":374,"c":{"purchase":2767.0},"w":[]},{"r":"GU63 ZTC","mk":"CHEVROLET","md":"SPARK","cl":"SILVER","mi":32179,"dt":"2026-09-19","ow":"Ansar","sn":375,"c":{"purchase":941.0},"w":[]}],"inv":["Abdul Sami","Abdullah","Ansar","Dr Naseer","Ibrahim","Niaz","Noori","Waheed","Wardak","Yaqoob","Zahir"],"cash":{"Waheed":2170.31,"Ibrahim":2149.44,"Niaz":821.0,"Ansar":2719.53,"Zahir":4555.04,"Dr Naseer":9159.23,"Yaqoob":3643.52,"Abdul Sami":14689.81,"Wardak":4105.98}};
+
+function importPreview(){
+  if(!isSuperAdmin()){ alert('Only a Super Admin can run the import.'); return; }
+  const have = new Set((DB.vehicles||[]).map(v=>(v.reg||'').toUpperCase().replace(/\s+/g,'')));
+  const incoming = SHEET_IMPORT.cars.filter(c=>!have.has(c.r.toUpperCase().replace(/\s+/g,'')));
+  const dupes = SHEET_IMPORT.cars.length - incoming.length;
+  const haveInv = new Set((DB.muzaribs||[]).map(m=>(m.name||'').toLowerCase()));
+  const newInv = SHEET_IMPORT.inv.filter(n=>!haveInv.has(n.toLowerCase()));
+  const totalCost = incoming.reduce((s,c)=>s+Object.values(c.c||{}).reduce((a,b)=>a+b,0),0);
+
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Import stock from the spreadsheet</h3>
+    <div class="small-muted" style="margin-bottom:12px;">
+      From <b>Vehicles stock 21-09-2026</b>. Sold and scrapped cars are left out.
+    </div>
+    <div class="grid kpi-grid" style="margin-bottom:12px;">
+      <div class="card kpi"><div class="label">Cars to add</div><div class="value small">${incoming.length}</div></div>
+      <div class="card kpi"><div class="label">Already in app</div><div class="value small">${dupes}</div></div>
+      <div class="card kpi"><div class="label">Investors</div><div class="value small">${SHEET_IMPORT.inv.length}</div><div class="sub">${newInv.length} new</div></div>
+      <div class="card kpi"><div class="label">Stock cost</div><div class="value small">${fmtMoney(totalCost)}</div></div>
+      <div class="card kpi"><div class="label">Investor cash</div><div class="value small">${fmtMoney(Object.values(SHEET_IMPORT.cash||{}).reduce((a,b)=>a+b,0))}</div></div>
+    </div>
+    ${newInv.length?`<div class="card" style="padding:12px;margin-bottom:10px;">
+      <b>New investor accounts:</b> <span class="small-muted">${newInv.map(escapeHtml).join(' · ')}</span></div>`:''}
+    <div class="card" style="padding:0;max-height:300px;overflow:auto;">
+      <table><thead><tr><th>Reg</th><th>Vehicle</th><th>Bought</th><th>Cost</th><th>Funded by</th></tr></thead><tbody>
+      ${incoming.map(c=>{const t=Object.values(c.c||{}).reduce((a,b)=>a+b,0);
+        return `<tr><td><b>${escapeHtml(c.r)}</b></td>
+        <td>${escapeHtml((c.mk+' '+c.md).trim())}</td>
+        <td>${c.dt?fmtDate(c.dt):'—'}</td>
+        <td>${fmtMoney(t)}</td>
+        <td>${c.ow?escapeHtml(c.ow):'<span class="small-muted">Company</span>'}</td></tr>`;}).join('')}
+      </tbody></table>
+    </div>
+    <div class="overdue-banner" style="margin-top:10px;">
+      <span>Check the list before importing. Anything already in the app is skipped, so running this twice is safe.</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="runSheetImport()">Import ${incoming.length} cars</button>
+    </div>`);
+}
+
+function runSheetImport(){
+  if(!isSuperAdmin()) return;
+  const have = new Set((DB.vehicles||[]).map(v=>(v.reg||'').toUpperCase().replace(/\s+/g,'')));
+  if(!DB.muzaribs) DB.muzaribs = [];
+  if(!DB.vehicles) DB.vehicles = [];
+
+  // investor accounts first, so cars can be linked to them
+  const idFor = {};
+  SHEET_IMPORT.inv.forEach(name=>{
+    let m = DB.muzaribs.find(x=>(x.name||'').toLowerCase()===name.toLowerCase());
+    if(!m){
+      m = {id:nextId('mz'), name:name, splitInvestor:50, adminFee:500, reservePct:10,
+           startedAt:todayISO(), note:'Created from the stock sheet import'};
+      DB.muzaribs.push(m);
+      logChange('muzaribat','Created investor from import', mzRef(m), '', '', name, '');
+    }
+    idFor[name] = m.id;
+
+    // Opening cash from the Muzaribat file, recorded once as capital in.
+    const cash = (SHEET_IMPORT.cash||{})[name];
+    if(cash != null && !(DB.muzaribTx||[]).some(t=>t.muzaribId===m.id && t.note==='Opening balance from the MZ file')){
+      if(!DB.muzaribTx) DB.muzaribTx = [];
+      DB.muzaribTx.push({id:nextId('mztx'), muzaribId:m.id, type:'in', amount:cash,
+        date:todayISO(), method:'Opening balance',
+        note:'Opening balance from the MZ file', by:currentUserName});
+      logChange('muzaribat','Opening cash balance imported', mzRef(m), 'Cash', '', fmtMoney(cash), '');
+    }
+  });
+
+  let added = 0;
+  SHEET_IMPORT.cars.forEach(c=>{
+    if(have.has(c.r.toUpperCase().replace(/\s+/g,''))) return;
+    const costs = {purchase:0,delivery:0,service:0,mot:0,bodywork:0,
+                   mechanical:0,autotrader:0,fuel:0,other:0};
+    Object.entries(c.c||{}).forEach(([k,v])=>{ if(k in costs) costs[k]=v; });
+
+    const v = {
+      id: nextId('veh'), reg: c.r, make: c.mk, model: c.md, colour: c.cl,
+      mileage: c.mi || 0, year:'', price: c.p || 0,
+      variant: c.va || '', status: c.p ? 'ready' : 'prep',
+      listedAt: c.dy ? new Date(Date.now() - c.dy*86400000).toISOString().slice(0,10) : null,
+      retailCheck: c.rv ? {retail:c.rv, indicator:c.pi||'', source:'AutoTrader portal', at: todayISO()} : null,
+      dateAdded: c.dt || todayISO(), costs: costs,
+      owner: c.ow ? idFor[c.ow] : null,
+      issues: [], parts: [], works: [], photoIds: [], invoicePhotoIds: [],
+      note: 'Imported from the stock sheet' + (c.sn?' (stock no '+c.sn+')':'') + (c.dy?' · '+c.dy+' days advertised at import':'')
+    };
+    // Keep the itemised history from the daily book, but with cost 0 — the
+    // money is already counted in the cost categories above, and counting it
+    // twice would overstate what each car has cost.
+    (c.w||[]).forEach(w=>{
+      v.works.push({id:nextId('work'), title:w.d, type:'From daily book', cost:0,
+        note:'Daily book record · ' + fmtMoney(w.a) + ' (already included in the costs above)',
+        doneAt:w.t||c.dt, by:'Import', createdAt:todayISO()});
+    });
+
+    DB.vehicles.push(v); added++;
+    logChange('stock','Imported vehicle', vehRef(v), '', '', c.r,
+      'From the stock sheet' + (c.ow?' · funded by '+c.ow:' · company car'));
+  });
+  DB.sheetImportedAt = new Date().toISOString();
+  saveDB(); closeModal(); render();
+  alert('Imported ' + added + ' cars.\n\nInvestor accounts are set to the default 50/50 split with a £500 admin charge — change those per investor in Muzaribat if they differ.');
+}
+
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
 function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
 document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
@@ -3342,6 +5365,9 @@ async function enterApp(user){
   currentUserEmail = (user.email||'').toLowerCase();
   await loadDB();
   document.getElementById('bizName').value = DB.bizName || 'Jack Bygraves Forecourt';
+  const logoEl = document.getElementById('sidebarLogo');
+  if(logoEl && typeof BRAND_LOGO === 'string') logoEl.src = BRAND_LOGO;
+  const dp = document.getElementById('dealerPostcode'); if(dp) dp.value = DB.dealerPostcode || '';
   bootstrapCurrentUserProfile();
   document.getElementById('userEmailLabel').textContent = currentUserName + ' (' + roleLabel(currentUserRole) + ')';
   const stl = document.getElementById('storageTestLink');
