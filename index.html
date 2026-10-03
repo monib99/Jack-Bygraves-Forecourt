@@ -605,7 +605,7 @@ function statusLabel(s){
   return {ready:'Ready to sell', repair:'Needs repair', mot:'Needs MOT', bodywork:'Needs bodywork', scrap:'Scrap', sold:'Sold'}[s]||s;
 }
 function statusTagClass(s){
-  return {ready:'tag-green', repair:'tag-amber', mot:'tag-blue', bodywork:'tag-red', scrap:'tag-grey', sold:'tag-brand'}[s]||'tag-grey';
+  return {ready:'tag-green', reserved:'tag-brand', repair:'tag-amber', mot:'tag-blue', bodywork:'tag-red', scrap:'tag-grey', sold:'tag-brand'}[s]||'tag-grey';
 }
 function weekKey(dateStr){
   const d = new Date(dateStr);
@@ -642,13 +642,17 @@ function render(){
   if(mzNav) mzNav.style.display = isManager() ? '' : 'none';
   const wsNav = document.querySelector('.nav-item[data-tab="website"]');
   if(wsNav) wsNav.style.display = isManager() ? '' : 'none';
+  // Ideas & Capital is the owner's planning space.
+  const bdNav = document.querySelector('.nav-item[data-tab="boardroom"]');
+  if(bdNav) bdNav.style.display = isSuperAdmin() ? '' : 'none';
   // Reports hold wages, margins and investor settlements — Super Admin only.
   const rpNav = document.querySelector('.nav-item[data-tab="reports"]');
   if(rpNav) rpNav.style.display = isSuperAdmin() ? '' : 'none';
   const auNav = document.querySelector('.nav-item[data-tab="audit"]');
   if(auNav) auNav.style.display = isSuperAdmin() ? '' : 'none';
   if(currentTab==='audit' && !isSuperAdmin()) currentTab = 'dashboard';
-  if(['boardroom','muzaribat','website'].includes(currentTab) && !isManager()) currentTab = 'dashboard';
+  if(['muzaribat','website'].includes(currentTab) && !isManager()) currentTab = 'dashboard';
+  if(currentTab==='boardroom' && !isSuperAdmin()) currentTab = 'dashboard';
   if(currentTab==='reports' && !isSuperAdmin()) currentTab = 'dashboard';
   const overdueIssues = allOpenIssues().filter(i=>isOverdue(i.reminderDate));
   const overdueTasks = DB.tasks.filter(t=>!t.done && isOverdue(t.date));
@@ -707,6 +711,8 @@ function renderDashboard(){
       <button class="btn btn-brand" onclick="openAddVehicle()">+ Add vehicle</button>
     </div>
   </div>
+
+  ${reserveJobsCard()}
 
   ${isManager() && gapCount(true) ? `
   <div class="overdue-banner">
@@ -893,7 +899,7 @@ function renderStock(){
   const counts = {};
   DB.vehicles.forEach(v=>counts[v.status]=(counts[v.status]||0)+1);
   const currentCount = DB.vehicles.filter(isCurrent).length;
-  const filters = [['current','In stock'],['ready','Ready to sell'],['repair','Needs repair'],
+  const filters = [['current','In stock'],['ready','Ready to sell'],['reserved','Reserved'],['repair','Needs repair'],
                    ['mot','Needs MOT'],['bodywork','Needs bodywork'],['scrap','Scrap'],
                    ['sold','Sold'],['all','Everything ever']];
 
@@ -928,7 +934,8 @@ function renderStock(){
       const margin = v.sale? vehicleProfit(v) : (Number(v.askingPrice)||0)-cost;
       const openIss = openIssuesCount(v);
       return `<tr style="cursor:pointer" onclick="openVehicle('${v.id}')">
-        <td class="mono" style="font-weight:700">${v.reg} ${gapBadge(v)}</td>
+        <td class="mono" style="font-weight:700">${v.reg} ${gapBadge(v)}
+          ${v.reserved?`<div class="small-muted" style="font-weight:400">for ${escapeHtml(v.reserved.name)}${v.reserved.dueDate?' · '+fmtDate(v.reserved.dueDate):''}</div>`:''}</td>
         <td>${v.make||''} ${v.model||''}<div class="small-muted">${v.year||''} ${v.color||''}</div></td>
         <td>${isMuzaribCar(v)?`<span class="tag tag-amber">${escapeHtml(muzaribName(v.muzaribId))}</span>`:'<span class="small-muted">Company</span>'}</td>
         <td><span class="tag ${statusTagClass(v.status)}">${statusLabel(v.status)}</span>${vehicleReservation(v.id)?' <span class="tag tag-purple">Reserved</span>':''}</td>
@@ -940,7 +947,10 @@ function renderStock(){
                 ? fmtDate(v.sale.date)+`<div class="small-muted">${daysToSell(v)}</div>`
                 : `<span class="small-muted">${v.dateAdded? daysInStock(v)+' in stock':'—'}</span>`}</td>
         <td style="color:${margin>=0?'var(--green)':'var(--red)'};font-weight:700">${fmtMoney(margin)}</td>
-        <td><button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openVehicle('${v.id}')">Open</button></td>
+        <td style="white-space:nowrap">
+          ${!v.sale?`<button class="btn btn-sm ${v.reserved?'btn-brand':'btn-ghost'}" title="${v.reserved?'Reserved for '+escapeAttr(v.reserved.name):'Reserve this car'}"
+            onclick="event.stopPropagation();openReserve('${v.id}')">${v.reserved?'🔖 Reserved':'Reserve'}</button> `:''}
+          <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openVehicle('${v.id}')">Open</button></td>
       </tr>`;
     }).join('')}
     </tbody></table>`}
@@ -1590,8 +1600,16 @@ function vehicleSaleTab(v){
       </div>
     </div>`;
   }
+  const r = v.reserved;
   return `<div class="card">
     <h3 style="margin-top:0">Record a sale for ${v.reg}</h3>
+    ${r?`<div class="card" style="box-shadow:none;background:var(--brand-dim);padding:12px;margin-bottom:12px;">
+      <div style="font-weight:700;margin-bottom:4px;">Reserved for ${escapeHtml(r.name)}</div>
+      <div class="small-muted">${escapeHtml([r.phone,r.email,r.postcode].filter(Boolean).join(' · '))}
+        ${r.deposit?' · '+fmtMoney(r.deposit)+' deposit taken':''}</div>
+      <button class="btn btn-sm btn-brand" style="margin-top:8px" onclick="useReservedCustomer('${v.id}')">
+        Use these details</button>
+    </div>`:''}
     <div class="field"><label>Customer</label>
       <select id="s_customer">
         <option value="">— Select existing customer —</option>
@@ -2036,8 +2054,44 @@ function openAddExpense(){
       <div class="field"><label>Amount (£)</label><input id="e_amount" type="number"/></div>
     </div>
     <div class="field"><label>Receipt photo</label><input id="e_photo" type="file" accept="image/*"/></div>
+    <div class="field"><label>Is this for a car, or for the business?</label>
+      <select id="e_for" onchange="toggleExpenseCar()">
+        <option value="office">The business — rent, fuel, tools, anything general</option>
+        <option value="car">A specific car — goes onto that car's cost</option>
+      </select></div>
+    <div id="e_car_wrap" style="display:none">
+      <div class="field-row">
+        <div class="field"><label>Which car</label>
+          <select id="e_vehicle">
+            <option value="">Choose a car…</option>
+            ${DB.vehicles.filter(v=>!v.sale).sort((a,b)=>(a.reg||'').localeCompare(b.reg||''))
+              .map(v=>`<option value="${v.id}">${escapeHtml(v.reg)} — ${escapeHtml(((v.make||'')+' '+(v.model||'')).trim())}</option>`).join('')}
+            <optgroup label="Already sold">
+              ${DB.vehicles.filter(v=>v.sale).sort((a,b)=>(b.sale.date||'').localeCompare(a.sale.date||'')).slice(0,40)
+                .map(v=>`<option value="${v.id}">${escapeHtml(v.reg)} — sold ${fmtDate(v.sale.date)}</option>`).join('')}
+            </optgroup>
+          </select></div>
+        <div class="field"><label>Type of cost</label>
+          <select id="e_costtype">
+            <option value="mechanical">Mechanical</option>
+            <option value="bodywork">Bodywork</option>
+            <option value="service">Service</option>
+            <option value="mot">MOT</option>
+            <option value="delivery">Delivery or recovery</option>
+            <option value="fuel">Fuel</option>
+            <option value="autotrader">Advertising</option>
+            <option value="other">Other</option>
+          </select></div>
+      </div>
+      <div class="small-muted" style="margin-bottom:10px;">This is added to the car's cost straight away, so its margin stays right.</div>
+    </div>
     <div class="field"><label>What was it for</label><textarea id="e_note" rows="2" placeholder="e.g. Fuel for collecting stock, wing mirror part for LP19 KFX"></textarea></div>
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-brand" onclick="saveExpense()">Log spend</button></div>`);
+}
+function toggleExpenseCar(){
+  const sel = document.getElementById('e_for');
+  const wrap = document.getElementById('e_car_wrap');
+  if(sel && wrap) wrap.style.display = sel.value==='car' ? '' : 'none';
 }
 async function saveExpense(){
   const funded = (document.getElementById('e_funded')||{value:'own'}).value;
@@ -2048,6 +2102,25 @@ async function saveExpense(){
     // Spends from the company float aren't owed back — they come off the float instead.
     status: funded==='float' ? 'float' : 'owed',
     paidAmount:0, payments:[], photoId:null};
+  // If it was for a car, add it to that car's costs too, and remember the link
+  // so the expense and the cost line stay tied together.
+  const forWhat = (document.getElementById('e_for')||{value:'office'}).value;
+  if(forWhat==='car'){
+    const vid = (document.getElementById('e_vehicle')||{value:''}).value;
+    const kind = (document.getElementById('e_costtype')||{value:'other'}).value;
+    const v = (DB.vehicles||[]).find(x=>x.id===vid);
+    if(!v){ alert('Choose which car this was for.'); return; }
+    expense.vehicleId = v.id;
+    expense.costType = kind;
+    if(!v.costs) v.costs = {};
+    v.costs[kind] = (Number(v.costs[kind])||0) + expense.amount;
+    if(!v.works) v.works = [];
+    v.works.push({id:nextId('work'), title: expense.note || 'Spend logged by ' + currentUserName,
+      type: kind, cost: 0, expenseId: expense.id,
+      note: 'Logged as a spend · ' + fmtMoney(expense.amount) + ' (already in the costs above)',
+      doneAt: expense.date, by: currentUserName, createdAt: todayISO()});
+    logChange('stock','Cost added from a logged spend', vehRef(v), kind, '', fmtMoney(expense.amount), expense.note||'');
+  }
   const file = document.getElementById('e_photo').files[0];
   DB.expenses.push(expense); saveDB(); closeModal(); render();
   if(file){
@@ -2089,6 +2162,17 @@ function saveExpensePayment(id){
 function deleteExpense(id){
   const e = DB.expenses.find(x=>x.id===id);
   if(!isManager() && e.userEmail!==currentUserEmail) return;
+  // If this spend was put against a car, take the cost back off it.
+  if(e && e.vehicleId){
+    const v = (DB.vehicles||[]).find(x=>x.id===e.vehicleId);
+    if(v){
+      const k = e.costType || 'other';
+      if(!v.costs) v.costs = {};
+      v.costs[k] = Math.max(0, (Number(v.costs[k])||0) - Number(e.amount||0));
+      v.works = (v.works||[]).filter(w=>w.expenseId !== e.id);
+      logChange('stock','Cost removed with a deleted spend', vehRef(v), k, fmtMoney(e.amount), '', '');
+    }
+  }
   logChange('money','Deleted logged spend by', {id:e.id, label:(e.userName||e.user||'staff')}, '', '', '',
     fmtMoney(e.amount) + ' · ' + (e.description||e.note||''));
   DB.expenses=DB.expenses.filter(x=>x.id!==id); saveDB(); render();
@@ -5516,7 +5600,7 @@ function runSheetImport(){
           note:'Daily book record · ' + fmtMoney(w.a) + ' (already included in the costs above)',
           doneAt:w.t||c.dt, by:'Import', createdAt:todayISO()}));
       }
-      if(c.ow && !existing.muzaribId && idFor[c.ow]){ existing.muzaribId = idFor[c.ow]; touched = true; }
+      if(c.ow && !existing.muzaribId && idFor[c.ow]){ existing.muzaribId = idFor[c.ow]; existing.ownerType='muzarib'; touched = true; }
       if(touched){
         updated++;
         logChange('stock','Updated from the stock sheet', vehRef(existing), '', '', c.r,
@@ -5536,6 +5620,7 @@ function runSheetImport(){
       retailCheck: c.rv ? {retail:c.rv, indicator:c.pi||'', source:'AutoTrader portal', at: todayISO()} : null,
       dateAdded: c.dt || todayISO(), costs: costs,
       muzaribId: c.ow ? idFor[c.ow] : null,
+      ownerType: c.ow ? 'muzarib' : 'company',
       issues: [], parts: [], works: [], photoIds: [], invoicePhotoIds: [],
       note: 'Imported from the stock sheet' + (c.sn?' (stock no '+c.sn+')':'') + (c.dy?' · '+c.dy+' days advertised at import':'')
     };
@@ -5577,6 +5662,7 @@ function runSheetImport(){
       mileage: c.mi||0, year:'', price: c.sp||0, status:'sold',
       dateAdded: c.dt || c.sd, costs: costs,
       muzaribId: c.ow ? idFor[c.ow] : null,
+      ownerType: c.ow ? 'muzarib' : 'company',
       issues: [], parts: [], works: [], photoIds: [], invoicePhotoIds: [],
       sale: { customerId: cust ? cust.id : null, date: c.sd,
               salePrice: c.sp||0, discount: c.dc||0,
@@ -6182,7 +6268,7 @@ function repairScan(){
   return {
     SAME, dupGroups,
     badTx:   (DB.muzaribTx||[]).filter(t=>t.type==='in').length,
-    ownerLinks:(DB.vehicles||[]).filter(v=>v.owner && !v.muzaribId).length,
+    ownerLinks:(DB.vehicles||[]).filter(v=>(v.owner && !v.muzaribId) || (v.muzaribId && v.ownerType!=='muzarib')).length,
     prepPriced:(DB.vehicles||[]).filter(v=>!v.sale && v.status==='prep' && Number(v.askingPrice||v.price||0)>0).length,
     priceField:(DB.vehicles||[]).filter(v=>!v.sale && !(Number(v.askingPrice)>0) && Number(v.price)>0).length,
   };
@@ -6250,11 +6336,17 @@ function runRepair(){
       const name = typeof v.owner==='string' ? v.owner : '';
       const want = SAME[name.toLowerCase()] || name;
       const m = (DB.muzaribs||[]).find(x=>(x.name||'').toLowerCase()===want.toLowerCase());
-      if(m){ v.muzaribId=m.id; delete v.owner; linked++; }
+      if(m){ v.muzaribId=m.id; v.ownerType='muzarib'; delete v.owner; linked++; }
     }
   });
 
-  // 4. asking price into the field the app reads, then mark it ready
+  // 4. a car with an investor but no ownerType reads as company stock — fix it
+  (DB.vehicles||[]).forEach(v=>{
+    if(v.muzaribId && v.ownerType!=='muzarib'){ v.ownerType='muzarib'; linked++; }
+    if(!v.muzaribId && !v.ownerType){ v.ownerType='company'; }
+  });
+
+  // 5. asking price into the field the app reads, then mark it ready
   (DB.vehicles||[]).forEach(v=>{
     if(!v.sale && !(Number(v.askingPrice)>0) && Number(v.price)>0){ v.askingPrice=Number(v.price); priced++; }
     if(!v.sale && v.status==='prep' && Number(v.askingPrice||v.price||0)>0){ v.status='ready'; readied++; }
@@ -6264,6 +6356,163 @@ function runRepair(){
     `${merged} merged · ${txFixed} balances · ${linked} links · ${priced} prices · ${readied} ready`,'');
   saveDB(); closeModal(); render();
   alert(`Done.\n\n${merged} duplicate investors merged\n${txFixed} opening balances now counted\n${linked} cars re-linked to their investor\n${priced} asking prices corrected\n${readied} cars marked ready to sell`);
+}
+
+
+/* =========================================================================
+   RESERVING A CAR — who wants it, what they asked for, and what must be done
+   before it can go. The jobs appear on the dashboard and in Daily Tasks.
+   ========================================================================= */
+
+function useReservedCustomer(vid){
+  const v=(DB.vehicles||[]).find(x=>x.id===vid); if(!v||!v.reserved) return;
+  const r=v.reserved;
+  // reuse the customer if they are already on file, otherwise create them once
+  if(!DB.customers) DB.customers=[];
+  let c=DB.customers.find(x=>(x.name||'').toLowerCase()===r.name.toLowerCase()
+      && (!r.phone || String(x.phone||'')===String(r.phone)));
+  if(!c){
+    c={id:nextId('cust'), name:r.name, phone:r.phone||'', email:r.email||'',
+       postcode:r.postcode||'', address:r.address||'', createdAt:todayISO(),
+       note:'From the reservation on '+v.reg};
+    DB.customers.push(c); saveDB();
+  }
+  const sel=document.getElementById('s_customer'); if(sel){ 
+    if(!Array.from(sel.options).some(o=>o.value===c.id)){
+      const o=document.createElement('option'); o.value=c.id; o.textContent=c.name+' ('+(c.phone||'')+')';
+      sel.appendChild(o);
+    }
+    sel.value=c.id; sel.dispatchEvent(new Event('change'));
+  }
+  const dep=document.getElementById('s_deposit'); if(dep && r.deposit) dep.value=r.deposit;
+  render();
+}
+
+function openReserve(vid){
+  const v=(DB.vehicles||[]).find(x=>x.id===vid); if(!v) return;
+  const r=v.reserved||{};
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>${r.at?'Reservation':'Reserve this car'}</h3>
+    <div class="small-muted" style="margin-bottom:12px;">${escapeHtml(v.reg)} — ${escapeHtml(((v.make||'')+' '+(v.model||'')).trim())}</div>
+
+    <div class="field-row">
+      <div class="field"><label>Customer name</label><input id="rs_name" value="${escapeAttr(r.name||'')}" placeholder="Full name"/></div>
+      <div class="field"><label>Phone</label><input id="rs_phone" value="${escapeAttr(r.phone||'')}" placeholder="07…"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Email</label><input id="rs_email" type="email" value="${escapeAttr(r.email||'')}"/></div>
+      <div class="field"><label>Postcode</label><input id="rs_post" value="${escapeAttr(r.postcode||'')}"/></div>
+    </div>
+    <div class="field"><label>Address</label><input id="rs_addr" value="${escapeAttr(r.address||'')}"/></div>
+    <div class="field-row">
+      <div class="field"><label>Deposit taken (£)</label><input id="rs_dep" type="number" step="0.01" value="${r.deposit||''}"/></div>
+      <div class="field"><label>Collecting on</label><input id="rs_due" type="date" value="${r.dueDate||''}"/></div>
+    </div>
+    <div class="field"><label>What the customer asked for</label>
+      <textarea id="rs_req" rows="2" placeholder="e.g. wants the scratch on the bumper sorted, full tank, 12 months MOT">${escapeHtml(r.request||'')}</textarea></div>
+
+    <div class="field"><label>Jobs to do before it goes</label>
+      <div class="small-muted" style="margin-bottom:6px;">One per line. Each becomes a task with a reminder for the collection date.</div>
+      <textarea id="rs_jobs" rows="4" placeholder="Fix bumper scratch&#10;MOT&#10;Valet&#10;Replace wiper blades">${escapeHtml((r.jobs||[]).map(j=>j.title).join('\n'))}</textarea></div>
+
+    <div class="modal-actions">
+      ${r.at?`<button class="btn btn-ghost" style="margin-right:auto" onclick="cancelReserve('${v.id}')">Cancel the reservation</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-brand" onclick="saveReserve('${v.id}')">${r.at?'Save':'Reserve it'}</button>
+    </div>`);
+}
+
+function saveReserve(vid){
+  const v=(DB.vehicles||[]).find(x=>x.id===vid); if(!v) return;
+  const name=(document.getElementById('rs_name').value||'').trim();
+  if(!name){ alert("Put the customer's name in."); return; }
+  const due=document.getElementById('rs_due').value||'';
+  const lines=(document.getElementById('rs_jobs').value||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  const existing=(v.reserved&&v.reserved.jobs)||[];
+
+  v.reserved={
+    name, phone:(document.getElementById('rs_phone').value||'').trim(),
+    email:(document.getElementById('rs_email').value||'').trim(),
+    postcode:(document.getElementById('rs_post').value||'').trim(),
+    address:(document.getElementById('rs_addr').value||'').trim(),
+    deposit:Number(document.getElementById('rs_dep').value)||0,
+    dueDate:due, request:(document.getElementById('rs_req').value||'').trim(),
+    at:(v.reserved&&v.reserved.at)||new Date().toISOString(),
+    by:(v.reserved&&v.reserved.by)||currentUserName,
+    jobs: lines.map(t=>{
+      const was=existing.find(j=>j.title===t);
+      return was || {id:nextId('rjob'), title:t, done:false, taskId:null};
+    })
+  };
+  v.status='reserved';
+
+  // each job becomes a task, so it shows in Daily Tasks and gets a reminder
+  if(!DB.tasks) DB.tasks=[];
+  v.reserved.jobs.forEach(j=>{
+    if(j.taskId && DB.tasks.some(t=>t.id===j.taskId)) return;
+    const t={id:nextId('task'), title:`${v.reg} — ${j.title}`,
+      note:`For ${name}${due?', collecting '+fmtDate(due):''}`,
+      date: due || todayISO(), done:false, priority:'high',
+      assignedTo:'', vehicleId:v.id, reserveJobId:j.id, createdAt:todayISO(), createdBy:currentUserName};
+    DB.tasks.push(t); j.taskId=t.id;
+  });
+
+  logChange('stock','Reserved', vehRef(v), 'Status', '', 'Reserved for '+name,
+    (v.reserved.deposit?fmtMoney(v.reserved.deposit)+' deposit · ':'') + v.reserved.jobs.length + ' job(s) to do');
+  saveDB(); closeModal(); render();
+}
+
+function cancelReserve(vid){
+  const v=(DB.vehicles||[]).find(x=>x.id===vid); if(!v||!v.reserved) return;
+  if(!confirm('Cancel this reservation?\n\nThe jobs stay on your task list — delete them yourself if they are no longer needed.')) return;
+  logChange('stock','Reservation cancelled', vehRef(v), 'Status', 'Reserved for '+v.reserved.name, 'Back in stock', '');
+  delete v.reserved;
+  if(v.status==='reserved') v.status='ready';
+  saveDB(); closeModal(); render();
+}
+
+/* Jobs still outstanding across every reserved car. */
+function outstandingReserveJobs(){
+  const out=[];
+  (DB.vehicles||[]).forEach(v=>{
+    if(!v.reserved) return;
+    (v.reserved.jobs||[]).forEach(j=>{
+      const t=(DB.tasks||[]).find(x=>x.id===j.taskId);
+      const done = j.done || (t && t.done);
+      if(!done) out.push({v, job:j, due:v.reserved.dueDate, who:v.reserved.name, task:t});
+    });
+  });
+  return out.sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+}
+
+function reserveJobsCard(){
+  const jobs=outstandingReserveJobs();
+  if(!jobs.length) return '';
+  const late=jobs.filter(j=>j.due && j.due < todayISO()).length;
+  return `
+  <div class="section-title"><h2>Reserved cars — jobs still to do</h2></div>
+  <div class="card" style="padding:0;">
+    <table><thead><tr><th>Car</th><th>Job</th><th>For</th><th>Collecting</th><th></th></tr></thead><tbody>
+    ${jobs.map(({v,job,due,who})=>`<tr>
+      <td><b>${escapeHtml(v.reg)}</b></td>
+      <td>${escapeHtml(job.title)}</td>
+      <td>${escapeHtml(who)}</td>
+      <td>${due?`<span class="${due<todayISO()?'tag tag-red':'small-muted'}">${fmtDate(due)}</span>`:'<span class="small-muted">—</span>'}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="markReserveJob('${v.id}','${job.id}')">Done</button></td>
+    </tr>`).join('')}
+    </tbody></table>
+  </div>
+  ${late?`<div class="small-muted" style="margin-top:6px;color:var(--red)">${late} job${late===1?'':'s'} past the collection date.</div>`:''}`;
+}
+
+function markReserveJob(vid, jid){
+  const v=(DB.vehicles||[]).find(x=>x.id===vid); if(!v||!v.reserved) return;
+  const j=(v.reserved.jobs||[]).find(x=>x.id===jid); if(!j) return;
+  j.done=true;
+  const t=(DB.tasks||[]).find(x=>x.id===j.taskId); if(t) t.done=true;
+  logChange('stock','Reservation job done', vehRef(v), j.title, 'outstanding', 'done', '');
+  saveDB(); render();
 }
 
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
