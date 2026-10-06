@@ -712,6 +712,8 @@ function renderDashboard(){
     </div>
   </div>
 
+  ${appointmentsCard()}
+
   ${reserveJobsCard()}
 
   ${isManager() && gapCount(true) ? `
@@ -935,7 +937,9 @@ function renderStock(){
       const openIss = openIssuesCount(v);
       return `<tr style="cursor:pointer" onclick="openVehicle('${v.id}')">
         <td class="mono" style="font-weight:700">${v.reg} ${gapBadge(v)}
-          ${v.reserved?`<div class="small-muted" style="font-weight:400">for ${escapeHtml(v.reserved.name)}${v.reserved.dueDate?' · '+fmtDate(v.reserved.dueDate):''}</div>`:''}</td>
+          ${v.reserved?`<div class="small-muted" style="font-weight:400">for ${escapeHtml(v.reserved.name)}${v.reserved.dueDate?' · '+fmtDate(v.reserved.dueDate):''}</div>`:''}
+          ${(()=>{const a=nextApptForVehicle(v.id);
+            return a?`<div style="font-weight:400" class="small-muted">📅 ${apptLabel(a.appointment)} ${apptWhen(a.appointment)}</div>`:'';})()}</td>
         <td>${v.make||''} ${v.model||''}<div class="small-muted">${v.year||''} ${v.color||''}</div></td>
         <td>${isMuzaribCar(v)?`<span class="tag tag-amber">${escapeHtml(muzaribName(v.muzaribId))}</span>`:'<span class="small-muted">Company</span>'}</td>
         <td><span class="tag ${statusTagClass(v.status)}">${statusLabel(v.status)}</span>${vehicleReservation(v.id)?' <span class="tag tag-purple">Reserved</span>':''}</td>
@@ -953,7 +957,10 @@ function renderStock(){
           <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openVehicle('${v.id}')">Open</button></td>
       </tr>`;
     }).join('')}
-    </tbody></table>`}
+    </tbody></table>
+    ${!custSearch && custView==='recent' && DB.customers.length>25
+      ? `<div class="small-muted" style="padding:10px 12px;">Showing the 25 most recent.
+         <a href="#" onclick="custView='all';render();return false;">Show all ${DB.customers.length}</a></div>` : ''}`}
   </div>
   `;
 }
@@ -1613,7 +1620,7 @@ function vehicleSaleTab(v){
     <div class="field"><label>Customer</label>
       <select id="s_customer">
         <option value="">— Select existing customer —</option>
-        ${DB.customers.map(c=>`<option value="${c.id}">${c.name} (${c.phone||''})</option>`).join('')}
+        ${customerOptions(v.sale?v.sale.customerId:'')}
       </select>
       <div class="small-muted" style="margin-top:6px;">Don't see them? <a class="link" onclick="openAddCustomer(true)">Add a new customer</a></div>
     </div>
@@ -1818,7 +1825,7 @@ function openAddTask(){
     <div class="field"><label>Task</label><input id="t_title" placeholder="e.g. Chase MOT booking for LP19 KFX"/></div>
     <div class="field-row">
       <div class="field"><label>Assign to</label>
-        <select id="t_assignee"><option value="">Unassigned</option>${DB.team.map(m=>`<option>${m.name}</option>`).join('')}</select>
+        <select id="t_assignee"><option value="">Unassigned</option>${(isManager()?DB.team:DB.team.filter(m=>m.email===currentUserEmail)).map(m=>`<option>${m.name}</option>`).join('')}</select>
       </div>
       <div class="field"><label>Date</label><input id="t_date" type="date" value="${todayISO()}"/></div>
     </div>
@@ -1889,9 +1896,9 @@ function renderTeamOverview(){
   // Payroll is Super Admin only — a manager sees nothing but their own record.
   const myPayroll = isSuperAdmin() ? DB.payroll : DB.payroll.filter(p=>p.userEmail===currentUserEmail);
 
-  // Per-employee owed summary (manager only)
+  // What each person is owed is Super Admin only.
   let summaryHtml = '';
-  if(isManager()){
+  if(isSuperAdmin()){
     const byEmployee = {};
     DB.expenses.forEach(e=>{
       const key = e.employee||'Unknown';
@@ -1915,14 +1922,17 @@ function renderTeamOverview(){
     </div>`;
   }
 
+  // Staff see only their own record. Day rates are Super Admin only — a manager
+  // has no business knowing what the others are paid.
+  const visibleTeam = isManager() ? DB.team : DB.team.filter(m=>m.email===currentUserEmail);
   return `
-  <div class="section-title"><h2>Team</h2></div>
+  <div class="section-title"><h2>${isManager()?'Team':'Your record'}</h2></div>
   <div class="card" style="padding:0;">
-    ${DB.team.length===0?'<div class="empty">No team members yet.</div>':`
-    <table><thead><tr><th>Name</th><th>Job role</th><th>Access</th><th>Day rate</th>${isManager()?'<th></th>':''}</tr></thead><tbody>
-    ${DB.team.map(m=>`<tr><td>${m.name}${m.email===currentUserEmail?' <span class="tag tag-brand">You</span>':''}</td><td>${m.role||'—'}</td>
+    ${visibleTeam.length===0?'<div class="empty">No team members yet.</div>':`
+    <table><thead><tr><th>Name</th><th>Job role</th><th>Access</th>${isSuperAdmin()?'<th>Day rate</th>':''}${isManager()?'<th></th>':''}</tr></thead><tbody>
+    ${visibleTeam.map(m=>`<tr><td>${m.name}${m.email===currentUserEmail?' <span class="tag tag-brand">You</span>':''}</td><td>${m.role||'—'}</td>
       <td>${isSuperAdmin() ? `<select onchange="changeAccessLevel('${m.id}',this.value)" ${m.email===currentUserEmail?'disabled title="You can\'t change your own access level"':''}><option value="staff" ${normaliseRole(m.accessLevel)==='staff'?'selected':''}>Staff</option><option value="manager" ${normaliseRole(m.accessLevel)==='manager'?'selected':''}>Manager</option><option value="superadmin" ${normaliseRole(m.accessLevel)==='superadmin'?'selected':''}>Super Admin</option></select>` : `<span class="tag ${normaliseRole(m.accessLevel)==='superadmin'?'tag-red':(normaliseRole(m.accessLevel)==='manager'?'tag-brand':'tag-grey')}">${roleLabel(normaliseRole(m.accessLevel))}</span>`}</td>
-      <td>${fmtMoney(m.dayRate)}</td>
+      ${isSuperAdmin()?`<td>${fmtMoney(m.dayRate)}</td>`:''}
       ${isManager()?`<td>${isSuperAdmin()?`<button class="btn btn-sm btn-danger" onclick="deleteTeamMember('${m.id}')" ${m.email===currentUserEmail?'disabled':''}>Remove</button>`:''}</td>`:''}</tr>`).join('')}
     </tbody></table>`}
   </div>
@@ -2231,18 +2241,67 @@ function deletePayroll(id){
 /* =========================================================================
    CUSTOMERS
    ========================================================================= */
+let custView = 'recent';     // 'recent' | 'all'
+let custSearch = '';
+function customerLastActivity(c){
+  // Newest first means newest added. Fall back to their most recent purchase for
+  // older records that were imported without a created date.
+  if(c.createdAt) return c.createdAt;
+  const sale=(DB.vehicles||[]).filter(v=>v.sale && v.sale.customerId===c.id)
+    .map(v=>v.sale.date||'').sort().pop();
+  return sale || '';
+}
+function customersSorted(){
+  const list=(DB.customers||[]).slice();
+  // Keep the original order as a tiebreaker: later in the array = added later.
+  const pos=new Map(list.map((c,i)=>[c.id,i]));
+  return list.sort((a,b)=>{
+    const d=(customerLastActivity(b)||'').localeCompare(customerLastActivity(a)||'');
+    return d !== 0 ? d : (pos.get(b.id)-pos.get(a.id));
+  });
+}
+function customersVisible(){
+  let list=customersSorted();
+  if(custSearch){
+    const q=custSearch.toLowerCase();
+    return list.filter(c=>((c.name||'')+' '+(c.phone||'')+' '+(c.email||'')+' '+(c.postcode||''))
+      .toLowerCase().includes(q));
+  }
+  return custView==='recent' ? list.slice(0,25) : list;
+}
+/* For the sale form: the 25 most recent, plus whoever is already selected. */
+function customerOptions(selectedId){
+  const recent=customersSorted().slice(0,25);
+  if(selectedId && !recent.some(c=>c.id===selectedId)){
+    const c=(DB.customers||[]).find(x=>x.id===selectedId);
+    if(c) recent.unshift(c);
+  }
+  const rest=(DB.customers||[]).length - recent.length;
+  return recent.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}${c.phone?' ('+escapeHtml(c.phone)+')':''}</option>`).join('')
+    + (rest>0?`<option disabled>──────────  ${rest} older customers — use Add new / search  ──────────</option>`:'');
+}
 function renderCustomers(){
   return `
   <div class="topbar">
     <div><h1>Customers &amp; Sales</h1><div class="date">${DB.customers.length} customers · ${DB.vehicles.filter(v=>v.sale).length} sales on record</div></div>
     <button class="btn btn-brand" onclick="openAddCustomer(false)">+ Add customer</button>
   </div>
+  <div class="toolbar" style="margin-bottom:12px;">
+    <input placeholder="Search name, phone, email or postcode…" value="${escapeAttr(custSearch)}"
+      oninput="custSearch=this.value;render()" style="width:300px"/>
+    <div class="chip-row" style="margin:0;">
+      <div class="chip ${custView==='recent'&&!custSearch?'active':''}" onclick="custSearch='';custView='recent';render()">Recent</div>
+      <div class="chip ${custView==='all'&&!custSearch?'active':''}" onclick="custSearch='';custView='all';render()">All ${DB.customers.length}</div>
+    </div>
+  </div>
   <div class="card" style="padding:0;margin-bottom:24px;">
-    ${DB.customers.length===0?'<div class="empty">No customers yet.</div>':`
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Vehicles bought</th><th></th></tr></thead><tbody>
-    ${DB.customers.map(c=>{
+    ${customersVisible().length===0?'<div class="empty">No customers match.</div>':`
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Added</th><th>Vehicles bought</th><th></th></tr></thead><tbody>
+    ${customersVisible().map(c=>{
       const bought = DB.vehicles.filter(v=>v.sale && v.sale.customerId===c.id);
-      return `<tr><td>${c.name}</td><td>${c.phone||'—'}</td><td>${c.email||'—'}</td><td>${bought.map(v=>v.reg).join(', ')||'—'}</td>
+      const added=customerLastActivity(c);
+      return `<tr><td>${c.name}</td><td>${c.phone||'—'}</td><td>${c.email||'—'}</td>
+      <td class="small-muted">${added?fmtDate(added):'—'}</td><td>${bought.map(v=>v.reg).join(', ')||'—'}</td>
       <td><button class="btn btn-sm btn-danger" onclick="deleteCustomer('${c.id}')">Remove</button></td></tr>`;
     }).join('')}
     </tbody></table>`}
@@ -3046,6 +3105,71 @@ function vehicleOptions(selectedId){
   return `<option value="">— Not linked to a car yet —</option>` +
     avail.map(v=>`<option value="${v.id}" ${v.id===selectedId?'selected':''}>${escapeHtml(v.reg)} · ${escapeHtml([v.make,v.model].filter(Boolean).join(' '))}${v.status==='sold'?' (sold)':''}</option>`).join('');
 }
+
+function toggleAppt(){
+  const sel=document.getElementById('ld_apptype'), w=document.getElementById('ld_appt_wrap');
+  if(sel&&w) w.style.display = sel.value ? '' : 'none';
+}
+function nextApptForVehicle(vid){
+  const t=todayISO();
+  return (DB.leads||[]).filter(l=>l.vehicleId===vid && l.appointment && l.appointment.date>=t
+      && ACTIVE_STAGES.includes(l.stage))
+    .sort((a,b)=>a.appointment.date.localeCompare(b.appointment.date))[0] || null;
+}
+function apptLabel(a){ return a && a.kind==='testdrive' ? 'Test drive' : 'Viewing'; }
+function apptWhen(a){
+  if(!a||!a.date) return '';
+  return fmtDate(a.date) + (a.time ? ' at ' + a.time : '');
+}
+/* Keep a task in step with the appointment, so it shows in Daily Tasks and reminds. */
+function syncApptTask(l){
+  if(!DB.tasks) DB.tasks=[];
+  const v=(DB.vehicles||[]).find(x=>x.id===l.vehicleId);
+  const reg=v?v.reg:(l.vehicleText||'');
+  const existing=DB.tasks.find(t=>t.leadId===l.id);
+  if(!l.appointment||!l.appointment.date){
+    if(existing){ DB.tasks=DB.tasks.filter(t=>t.id!==existing.id); }
+    return;
+  }
+  const a=l.appointment;
+  const title=`${apptLabel(a)} — ${l.name}${reg?' · '+reg:''}${a.time?' at '+a.time:''}`;
+  if(existing){ existing.title=title; existing.date=a.date; existing.note=a.note||''; }
+  else {
+    DB.tasks.push({id:nextId('task'), title, note:a.note||'', date:a.date, done:false,
+      priority:'high', assignedTo:'', leadId:l.id, vehicleId:l.vehicleId||null,
+      createdAt:todayISO(), createdBy:currentUserName});
+  }
+}
+/* Everything booked from today onward. */
+function upcomingAppointments(){
+  const t=todayISO();
+  return (DB.leads||[]).filter(l=>l.appointment&&l.appointment.date&&l.appointment.date>=t
+      && ACTIVE_STAGES.includes(l.stage))
+    .sort((a,b)=>(a.appointment.date+(a.appointment.time||'')).localeCompare(b.appointment.date+(b.appointment.time||'')));
+}
+function appointmentsCard(){
+  const list=upcomingAppointments();
+  if(!list.length) return '';
+  const t=todayISO();
+  return `
+  <div class="section-title"><h2>Viewings &amp; test drives booked</h2></div>
+  <div class="card" style="padding:0;">
+    <table><thead><tr><th>When</th><th>What</th><th>Customer</th><th>Car</th><th></th></tr></thead><tbody>
+    ${list.slice(0,10).map(l=>{
+      const a=l.appointment;
+      const v=(DB.vehicles||[]).find(x=>x.id===l.vehicleId);
+      return `<tr onclick="openLeadForm('${l.id}')" style="cursor:pointer">
+        <td><b class="${a.date===t?'':''}">${fmtDate(a.date)}</b>${a.time?` <span class="small-muted">${a.time}</span>`:''}
+            ${a.date===t?' <span class="tag tag-brand">Today</span>':''}</td>
+        <td><span class="tag ${a.kind==='testdrive'?'tag-purple':'tag-blue'}">${apptLabel(a)}</span></td>
+        <td>${escapeHtml(l.name)}${l.phone?`<div class="small-muted">${escapeHtml(l.phone)}</div>`:''}</td>
+        <td>${v?escapeHtml(v.reg):escapeHtml(l.vehicleText||'—')}</td>
+        <td>${a.note?`<span class="small-muted">${escapeHtml(a.note)}</span>`:''}</td>
+      </tr>`;}).join('')}
+    </tbody></table>
+  </div>`;
+}
+
 function openLeadForm(id, presetVehicleId){
   const l = id ? (DB.leads||[]).find(x=>x.id===id) : null;
   const vId = l ? l.vehicleId : (presetVehicleId||'');
@@ -3057,7 +3181,30 @@ function openLeadForm(id, presetVehicleId){
       <div class="field"><label>Phone</label><input id="ld_phone" type="tel" value="${l?escapeAttr(l.phone||''):''}"/></div>
     </div>
     <div class="field"><label>Email</label><input id="ld_email" type="email" value="${l?escapeAttr(l.email||''):''}"/></div>
-    <div class="field"><label>Car they&rsquo;re interested in</label><select id="ld_vehicle">${vehicleOptions(vId)}</select></div>
+    <div class="field"><label>Car they&rsquo;re interested in</label><select id="ld_vehicle">${vehicleOptions(vId)}</select>
+      <div class="small-muted" style="margin-top:4px;">Pick the car and this lead shows on that vehicle too &mdash; it is one list.</div></div>
+
+    <div class="field-row">
+      <div class="field"><label>Deposit taken (&pound;)</label>
+        <input id="ld_dep" type="number" step="0.01" value="${l&&l.deposit?l.deposit:''}" placeholder="0.00"/></div>
+      <div class="field"><label>Reserved until</label>
+        <input id="ld_runtil" type="date" value="${l&&l.reservedUntil?l.reservedUntil:''}"/></div>
+    </div>
+
+    <div class="field"><label>Booking a viewing or test drive?</label>
+      <select id="ld_apptype" onchange="toggleAppt()">
+        <option value="" ${!(l&&l.appointment)?'selected':''}>Not yet &mdash; no appointment</option>
+        <option value="viewing" ${l&&l.appointment&&l.appointment.kind==='viewing'?'selected':''}>Viewing</option>
+        <option value="testdrive" ${l&&l.appointment&&l.appointment.kind==='testdrive'?'selected':''}>Test drive</option>
+      </select></div>
+    <div id="ld_appt_wrap" style="display:${l&&l.appointment?'':'none'}">
+      <div class="field-row">
+        <div class="field"><label>Date</label><input id="ld_apdate" type="date" value="${l&&l.appointment?l.appointment.date||'':''}"/></div>
+        <div class="field"><label>Time</label><input id="ld_aptime" type="time" value="${l&&l.appointment?l.appointment.time||'':''}"/></div>
+      </div>
+      <div class="field"><label>Note for the appointment</label>
+        <input id="ld_apnote" value="${l&&l.appointment?escapeAttr(l.appointment.note||''):''}" placeholder="e.g. bringing their part-ex, coming after work"/></div>
+    </div>
     <div class="field"><label>Or describe what they want (if not in stock)</label><input id="ld_vtext" value="${l?escapeAttr(l.vehicleText||''):''}" placeholder="e.g. Automatic hatchback under £6k"/></div>
     <div class="field-row">
       <div class="field"><label>Source</label><select id="ld_source">${LEAD_SOURCES.map(s=>`<option ${l&&l.source===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -3091,6 +3238,16 @@ function saveLead(id){
     source: document.getElementById('ld_source').value,
     budget: Number(document.getElementById('ld_budget').value)||0,
     nextFollowUp: document.getElementById('ld_fu').value || '',
+    deposit: Number((document.getElementById('ld_dep')||{value:0}).value)||0,
+    reservedUntil: (document.getElementById('ld_runtil')||{value:''}).value||'',
+    appointment: (()=>{
+      const kind=(document.getElementById('ld_apptype')||{value:''}).value;
+      if(!kind) return null;
+      const date=(document.getElementById('ld_apdate')||{value:''}).value;
+      if(!date){ return null; }
+      return {kind, date, time:(document.getElementById('ld_aptime')||{value:''}).value||'',
+              note:(document.getElementById('ld_apnote')||{value:''}).value.trim()};
+    })(),
     partEx: document.getElementById('ld_px').value.trim(),
     finance: document.getElementById('ld_fin').value,
   };
@@ -3100,6 +3257,12 @@ function saveLead(id){
   if(id){
     l = DB.leads.find(x=>x.id===id); if(!l) return;
     Object.assign(l, data);
+    syncApptTask(l);
+    if(l.stage==='reserved' && l.vehicleId){
+      const vv=(DB.vehicles||[]).find(x=>x.id===l.vehicleId);
+      if(vv && vv.reserved){ vv.reserved.deposit=Number(l.deposit)||0;
+        if(l.reservedUntil) vv.reserved.dueDate=l.reservedUntil; }
+    }
     if(l.stage!==newStage){ changeLeadStage(l, newStage, true); }
   } else {
     // Warn about a likely duplicate (same phone or email already active)
@@ -3108,6 +3271,7 @@ function saveLead(id){
     if(dup && !confirm(`${dup.name} already has an active lead (${leadVehicleLabel(dup)}).\n\nAdd a separate lead anyway?`)) { closeModal(); openLead(dup.id); return; }
     l = {id:nextId('lead'), ...data, stage:'new', createdAt:todayISO(), createdBy:currentUserName, assignedTo:currentUserName, notes:[]};
     DB.leads.push(l);
+    syncApptTask(l);
     logLeadEvent(l, 'Lead created');
     const first = document.getElementById('ld_note').value.trim();
     if(first) l.notes.push({text:first, author:currentUserName, at:new Date().toISOString()});
@@ -3133,6 +3297,28 @@ function changeLeadStage(l, stage, silent){
       l.deposit = Number(dep)||0;
       const until = prompt('Reserved until (YYYY-MM-DD)? Leave blank for no expiry.', l.reservedUntil||addDays(todayISO(),7));
       if(until!==null) l.reservedUntil = until;
+    }
+  }
+  if(stage==='reserved' && l.vehicleId){
+    // Mirror it onto the vehicle so Stock and Leads agree.
+    const v=(DB.vehicles||[]).find(x=>x.id===l.vehicleId);
+    if(v){
+      v.reserved = Object.assign({}, v.reserved||{}, {
+        name:l.name, phone:l.phone||'', email:l.email||'',
+        postcode:(v.reserved&&v.reserved.postcode)||'', address:(v.reserved&&v.reserved.address)||'',
+        deposit:Number(l.deposit)||0, dueDate:l.reservedUntil||'',
+        request:(v.reserved&&v.reserved.request)||'',
+        jobs:(v.reserved&&v.reserved.jobs)||[],
+        at:(v.reserved&&v.reserved.at)||new Date().toISOString(),
+        by:(v.reserved&&v.reserved.by)||currentUserName, leadId:l.id });
+      v.status='reserved';
+    }
+  }
+  if((stage==='lost'||stage==='interested'||stage==='new'||stage==='viewing') && l.vehicleId){
+    const v=(DB.vehicles||[]).find(x=>x.id===l.vehicleId);
+    if(v && v.reserved && v.reserved.leadId===l.id){
+      delete v.reserved;
+      if(v.status==='reserved') v.status='ready';
     }
   }
   if(stage==='lost' && !silent){
@@ -6458,6 +6644,25 @@ function saveReserve(vid){
     DB.tasks.push(t); j.taskId=t.id;
   });
 
+  // Keep the lead in step — one reservation, not two. If this customer already has
+  // a lead on this car, move it to Reserved; otherwise create one.
+  if(!DB.leads) DB.leads=[];
+  let lead=(DB.leads||[]).find(x=>x.vehicleId===v.id
+      && (x.name||'').toLowerCase()===name.toLowerCase() && x.stage!=='lost' && x.stage!=='sold');
+  if(!lead){
+    lead={id:nextId('lead'), name, phone:v.reserved.phone, email:v.reserved.email,
+      vehicleId:v.id, vehicleText:'', source:'Walk-in', budget:0, stage:'reserved',
+      nextFollowUp: due||'', partEx:'', finance:'', appointment:null,
+      createdAt:todayISO(), createdBy:currentUserName, history:[]};
+    DB.leads.push(lead);
+  } else {
+    lead.phone=lead.phone||v.reserved.phone; lead.email=lead.email||v.reserved.email;
+    lead.stage='reserved';
+  }
+  lead.deposit=v.reserved.deposit;
+  lead.reservedUntil=due||lead.reservedUntil||'';
+  v.reserved.leadId=lead.id;
+
   logChange('stock','Reserved', vehRef(v), 'Status', '', 'Reserved for '+name,
     (v.reserved.deposit?fmtMoney(v.reserved.deposit)+' deposit · ':'') + v.reserved.jobs.length + ' job(s) to do');
   saveDB(); closeModal(); render();
@@ -6466,6 +6671,8 @@ function saveReserve(vid){
 function cancelReserve(vid){
   const v=(DB.vehicles||[]).find(x=>x.id===vid); if(!v||!v.reserved) return;
   if(!confirm('Cancel this reservation?\n\nThe jobs stay on your task list — delete them yourself if they are no longer needed.')) return;
+  const lk=(DB.leads||[]).find(x=>x.id===v.reserved.leadId);
+  if(lk && lk.stage==='reserved'){ lk.stage='interested'; }
   logChange('stock','Reservation cancelled', vehRef(v), 'Status', 'Reserved for '+v.reserved.name, 'Back in stock', '');
   delete v.reserved;
   if(v.status==='reserved') v.status='ready';
