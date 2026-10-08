@@ -277,7 +277,7 @@
     <div id="loginError" style="color:#B23A24;font-size:12.5px;margin-bottom:8px;display:none;"></div>
     <button class="btn btn-brand" style="width:100%;justify-content:center;min-height:44px;" onclick="doLogin()">Sign in</button>
     <div style="color:#9AA0A6;font-size:11.5px;margin-top:14px;">Don't have an account? Ask your manager to add you in the Supabase dashboard under Authentication → Users.</div>
-    <div style="color:#6B7075;font-size:10.5px;margin-top:10px;letter-spacing:.4px;">Version 2026-10-08 · build 30</div>
+    <div style="color:#6B7075;font-size:10.5px;margin-top:10px;letter-spacing:.4px;">Version 2026-10-08 · build 31</div>
   </div>
 </div>
 <div id="app" style="display:none;">
@@ -1404,6 +1404,7 @@ function updateVehicleField(id, field, value){
   v[field]=value;
   if(LOGGED_VEHICLE_FIELDS[field]){
     const fmt = x => field==='askingPrice' ? fmtMoney(x) : (field==='status' ? statusLabel(x) : x);
+    captureUndo({t:'vehField', id:v.id, prop:field, before, after:value});
     logChange('stock','Edited', vehRef(v), LOGGED_VEHICLE_FIELDS[field], fmt(before), fmt(value));
   }
   saveDB();
@@ -1790,6 +1791,7 @@ function updateCost(vId, key, val){
   v.costs[key]=val;
   if(before!==after){
     const note = isMuzaribCar(v) ? 'Investor car — ' + muzaribName(v.muzaribId) : '';
+    captureUndo({t:'vehCost', id:v.id, prop:key, before, after});
     logChange('cost','Changed cost on', vehRef(v), COST_LABELS[key]||key, fmtMoney(before), fmtMoney(after), note);
   }
   saveDB(); renderVehicleDetail();
@@ -4550,7 +4552,7 @@ function renderMuzaribProfile(id){
       <td>${escapeHtml(t.note||'')}</td>
       <td>${escapeHtml(t.method||'&mdash;')}</td>
       <td style="font-weight:700;color:${t.type==='withdrawal'?'var(--red)':'inherit'}">${t.type==='withdrawal'?'&minus; ':''}${fmtMoney(Math.abs(t.amount))}</td>
-      <td>${isSuperAdmin()?`<button class="btn btn-sm btn-danger" onclick="deleteMzTx('${t.id}')">✕</button>`:''}</td>
+      <td>${isManager()?`<button class="btn btn-sm btn-danger" onclick="deleteMzTx('${t.id}')" title="Delete this entry — the Super Admin can undo it">✕</button>`:''}</td>
     </tr>`).join('')}
     </tbody></table>` : `<div class="empty">No cash movements recorded yet.</div>`}
   </div>
@@ -4656,9 +4658,11 @@ function saveMuzarib(id){
     [['adminCharge','Admin charge',true],['splitPct','Investor share %',false],
      ['reservePct','Prep reserve %',false]].forEach(([k,lbl,isMoney])=>{
       const b = m[k], a2 = data[k];
-      if(String(b)!==String(a2))
+      if(String(b)!==String(a2)){
+        captureUndo({t:'mzField', id:m.id, prop:k, before:b, after:a2});
         logChange('muzarib','Changed terms for', mzRef(m), lbl,
           isMoney?fmtMoney(b||0):String(b==null?'':b), isMoney?fmtMoney(a2||0):String(a2));
+      }
     });
     Object.assign(m, data, act ? {active: act.value==='yes'} : {});
   } else {
@@ -4714,19 +4718,22 @@ function saveMzTx(id, type){
   if(!DB.muzaribTx) DB.muzaribTx = [];
   const method = document.getElementById('mtx_method').value;
   const note = document.getElementById('mtx_note').value.trim();
-  DB.muzaribTx.push({id:nextId('mztx'), muzaribId:id, type, amount:amt,
+  const newTx = {id:nextId('mztx'), muzaribId:id, type, amount:amt,
     date: document.getElementById('mtx_date').value || todayISO(),
-    method, note, addedBy: currentUserName});
+    method, note, addedBy: currentUserName};
+  DB.muzaribTx.push(newTx);
   const m = muzarib(id);
+  captureUndo({t:'mzTxAdd', id:newTx.id});
   logChange('money', type==='withdrawal'?'Recorded withdrawal for':'Added capital for', mzRef(m),
     MZ_TX_TYPES[type].label, '', fmtMoney(amt),
     method + (note?' · '+note:'') + ' · cash now ' + fmtMoney(muzaribPosition(id).cash));
   saveDB(); closeModal(); render();
 }
 function deleteMzTx(txId){
-  if(!isSuperAdmin()) return;
+  if(!isManager()){ alert('Only a manager can delete a cash entry.'); return; }
   if(!confirm('Delete this entry?')) return;
   const t = (DB.muzaribTx||[]).find(x=>x.id===txId);
+  if(t) captureUndo({t:'mzTxDel', tx: JSON.parse(JSON.stringify(t))});
   if(t) logChange('money','Deleted cash entry for', mzRef(muzarib(t.muzaribId)||{id:t.muzaribId,name:'Unknown'}),
     MZ_TX_TYPES[t.type].label, fmtMoney(t.amount), '', 'Dated ' + fmtDate(t.date));
   DB.muzaribTx = (DB.muzaribTx||[]).filter(t2=>t2.id!==txId);
@@ -4790,6 +4797,68 @@ const AUDIT_AREAS = {
   money:   {label:'Money',     tag:'tag-red'}
 };
 
+/* ---- undo ----------------------------------------------------------------
+   A manager can change money figures; the Super Admin can put them back.
+   captureUndo() is called immediately before a change and hands the next
+   logChange() enough to reverse exactly that one edit.                       */
+let pendingUndo = null;
+function captureUndo(payload){ pendingUndo = payload; }
+
+function undoLabel(e){
+  if(!e || !e.undo) return '';
+  switch(e.undo.t){
+    case 'vehField': return 'Put ' + (e.field||'this') + ' back to ' + (e.from||'blank');
+    case 'vehCost':  return 'Put ' + (e.field||'this cost') + ' back to ' + (e.from||'blank');
+    case 'mzField':  return 'Put ' + (e.field||'this') + ' back to ' + (e.from||'blank');
+    case 'mzTxAdd':  return 'Remove this entry again';
+    case 'mzTxDel':  return 'Put this entry back';
+    default: return 'Undo';
+  }
+}
+function canUndo(e){
+  if(!isSuperAdmin() || !e || !e.undo || e.undone) return false;
+  const u = e.undo;
+  if(u.t==='vehField' || u.t==='vehCost') return !!DB.vehicles.find(v=>v.id===u.id);
+  if(u.t==='mzField')  return !!(DB.muzaribs||[]).find(m=>m.id===u.id);
+  if(u.t==='mzTxAdd')  return !!(DB.muzaribTx||[]).find(t=>t.id===u.id);
+  if(u.t==='mzTxDel')  return !!u.tx && !(DB.muzaribTx||[]).some(t=>t.id===u.tx.id);
+  return false;
+}
+function undoChange(logId){
+  if(!isSuperAdmin()){ alert('Only a Super Admin can undo a change.'); return; }
+  const e = (DB.audit||[]).find(x=>x.id===logId);
+  if(!e || !canUndo(e)){ alert('This change can no longer be undone.'); return; }
+  const u = e.undo;
+  if(!confirm(undoLabel(e) + '?\n\nChanged by ' + (e.user||'someone') + ' on ' + fmtDate((e.at||'').slice(0,10)) + '.')) return;
+
+  let what = '';
+  if(u.t==='vehField'){
+    const v = DB.vehicles.find(x=>x.id===u.id); if(!v) return;
+    v[u.prop] = u.before;
+    what = vehRef(v).label;
+  } else if(u.t==='vehCost'){
+    const v = DB.vehicles.find(x=>x.id===u.id); if(!v) return;
+    if(!v.costs) v.costs = {};
+    v.costs[u.prop] = u.before;
+    what = vehRef(v).label;
+  } else if(u.t==='mzField'){
+    const m = (DB.muzaribs||[]).find(x=>x.id===u.id); if(!m) return;
+    m[u.prop] = u.before;
+    what = m.name || '';
+  } else if(u.t==='mzTxAdd'){
+    DB.muzaribTx = (DB.muzaribTx||[]).filter(t=>t.id!==u.id);
+    what = 'cash entry removed';
+  } else if(u.t==='mzTxDel'){
+    if(!DB.muzaribTx) DB.muzaribTx = [];
+    DB.muzaribTx.push(u.tx);
+    what = 'cash entry restored';
+  }
+
+  e.undone = { at: new Date().toISOString(), by: currentUserName || '' };
+  logChange('settings','Undid a change by '+(e.user||'someone'), {id:e.refId, label:e.refLabel||what},
+            e.field||'', e.to||'', e.from||'', 'Undone from the change log');
+  saveDB(); render();
+}
 function logChange(area, action, ref, field, from, to, note){
   if(!DB.audit) DB.audit = [];
   // Ignore no-op edits so the log stays readable.
@@ -4805,8 +4874,10 @@ function logChange(area, action, ref, field, from, to, note){
     refId: ref && ref.id ? ref.id : (ref||null),
     refLabel: ref && ref.label ? ref.label : (typeof ref==='string' ? ref : ''),
     field: field||'', from: from==null?'':String(from), to: to==null?'':String(to),
-    note: note||''
+    note: note||'',
+    undo: pendingUndo || null      // set by captureUndo() just before the change
   });
+  pendingUndo = null;
   if(DB.audit.length > MAX_AUDIT) DB.audit = DB.audit.slice(-MAX_AUDIT);
 }
 const vehRef = v => ({id:v.id, label: v.reg + (v.make?' · '+[v.make,v.model].filter(Boolean).join(' '):'')});
@@ -4848,7 +4919,7 @@ function renderAudit(){
 
   return `
   <div class="topbar">
-    <div><h1>Change log</h1><div class="date">Every money and ownership change, and who made it</div></div>
+    <div><h1>Change log</h1><div class="date">Every money and ownership change, and who made it — price, cost, investor-terms and cash entries can be undone</div></div>
     <button class="btn btn-ghost" onclick="exportAuditCSV()">⬇ Export CSV</button>
   </div>
 
@@ -4884,7 +4955,7 @@ function renderAudit(){
   ${rows.length===0 ? `<div class="card"><div class="empty"><div class="big">Nothing logged yet</div>
     Changes to costs, prices, ownership, sales and investor cash will appear here.</div></div>` : `
   <div class="card" style="padding:0;">
-    <table><thead><tr><th>When</th><th>Who</th><th>Area</th><th>What changed</th><th>From</th><th>To</th></tr></thead><tbody>
+    <table><thead><tr><th>When</th><th>Who</th><th>Area</th><th>What changed</th><th>From</th><th>To</th><th></th></tr></thead><tbody>
     ${rows.slice(0,400).map(e=>`<tr ${e.refId&&e.area!=='muzarib'&&e.area!=='team'?`style="cursor:pointer" onclick="openVehicle('${e.refId}')"`:(e.area==='muzarib'&&e.refId?`style="cursor:pointer" onclick="openMuzarib('${e.refId}')"`:'')}>
       <td style="white-space:nowrap;">${auditTime(e.at)}</td>
       <td><b>${escapeHtml(e.user||'—')}</b>${e.role==='superadmin'?' <span class="tag tag-red">SA</span>':(e.role==='manager'?' <span class="tag tag-brand">M</span>':'')}</td>
@@ -4892,6 +4963,13 @@ function renderAudit(){
       <td>${escapeHtml(e.action)}${e.refLabel?` <span class="mono">${escapeHtml(e.refLabel)}</span>`:''}${e.field?` — <b>${escapeHtml(e.field)}</b>`:''}${e.note?`<div class="small-muted">${escapeHtml(e.note)}</div>`:''}</td>
       <td class="small-muted">${e.from!==''?escapeHtml(e.from):'—'}</td>
       <td style="font-weight:600">${e.to!==''?escapeHtml(e.to):'—'}</td>
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">
+        ${e.undone
+          ? `<span class="tag tag-grey" title="Undone by ${escapeAttr(e.undone.by||'')}">Undone</span>`
+          : (canUndo(e)
+              ? `<button class="btn btn-sm btn-ghost" title="${escapeAttr(undoLabel(e))}" onclick="undoChange('${e.id}')">↩ Undo</button>`
+              : '')}
+      </td>
     </tr>`).join('')}
     </tbody></table>
     ${rows.length>400?`<div class="small-muted" style="padding:10px;">Showing the most recent 400 of ${rows.length}. Narrow the filters or export to see the rest.</div>`:''}
