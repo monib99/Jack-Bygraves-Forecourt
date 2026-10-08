@@ -277,7 +277,7 @@
     <div id="loginError" style="color:#B23A24;font-size:12.5px;margin-bottom:8px;display:none;"></div>
     <button class="btn btn-brand" style="width:100%;justify-content:center;min-height:44px;" onclick="doLogin()">Sign in</button>
     <div style="color:#9AA0A6;font-size:11.5px;margin-top:14px;">Don't have an account? Ask your manager to add you in the Supabase dashboard under Authentication → Users.</div>
-    <div style="color:#6B7075;font-size:10.5px;margin-top:10px;letter-spacing:.4px;">Version 2026-10-08 · build 23</div>
+    <div style="color:#6B7075;font-size:10.5px;margin-top:10px;letter-spacing:.4px;">Version 2026-10-08 · build 24</div>
   </div>
 </div>
 <div id="app" style="display:none;">
@@ -426,27 +426,77 @@ let taskDayOffset = 0;
 let lastSavedJson = null;      // last JSON we wrote/received, used to ignore echoes of our own save
 let justSavedLocally = false;
 
+/* Nothing may be written until we have successfully READ the workspace.
+   A failed read used to seed the row with an empty DB, which could overwrite
+   a live workspace after nothing worse than a dropped connection. */
+let dbLoaded = false;
+
 async function loadDB(){
-  const {data, error} = await sb.from('app_data').select('data').eq('id', APP_DATA_ROW_ID).single();
+  const {data, error} = await sb.from('app_data').select('data').eq('id', APP_DATA_ROW_ID).maybeSingle();
+
   if(error){
+    // We do NOT know what is in the row, so we must not write to it.
     console.error('load failed', error);
-    setSyncStatus('Could not load — check Supabase table setup');
-    // still start with an empty DB and try to create the row
-    await sb.from('app_data').upsert({id: APP_DATA_ROW_ID, data: DB});
-  } else if(data && data.data && Object.keys(data.data).length){
+    dbLoaded = false;
+    setSyncStatus('Not loaded — read failed');
+    showLoadFailure(error.message || 'The workspace could not be read.');
+    render();
+    return;
+  }
+
+  if(data && data.data && Object.keys(data.data).length){
     DB = {...DEFAULT_DB(), ...data.data};
     lastSavedJson = JSON.stringify(DB);
+    dbLoaded = true;
   } else {
-    // first run — seed the row
-    await sb.from('app_data').upsert({id: APP_DATA_ROW_ID, data: DB});
+    // the read succeeded and the workspace really is empty — safe to seed
+    const {error: seedErr} = await sb.from('app_data').upsert({id: APP_DATA_ROW_ID, data: DB});
+    if(seedErr){
+      dbLoaded = false;
+      setSyncStatus('Not loaded — could not create workspace');
+      showLoadFailure(seedErr.message || 'The workspace could not be created.');
+      render();
+      return;
+    }
     lastSavedJson = JSON.stringify(DB);
+    dbLoaded = true;
   }
+
+  hideLoadFailure();
   render();
   subscribeToChanges();
 }
 
+function showLoadFailure(detail){
+  let el = document.getElementById('loadFailBanner');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'loadFailBanner';
+    el.style.cssText = 'position:sticky;top:0;z-index:999;background:#B23A24;color:#fff;padding:12px 16px;'
+      + 'font-size:13.5px;line-height:1.5;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+    const main = document.getElementById('main');
+    if(main && main.parentNode) main.parentNode.insertBefore(el, main);
+    else document.body.insertBefore(el, document.body.firstChild);
+  }
+  el.innerHTML = '<strong>Your data has not loaded \u2014 this screen is empty, not your workspace.</strong><br>'
+    + 'Saving is switched off so nothing can be overwritten. Do not add anything until this clears. '
+    + '<a href="#" style="color:#fff;text-decoration:underline" onclick="loadDB();return false;">Try again</a>'
+    + '<div style="opacity:.85;font-size:12px;margin-top:4px">' + (detail||'') + '</div>';
+  el.style.display = '';
+}
+function hideLoadFailure(){
+  const el = document.getElementById('loadFailBanner');
+  if(el) el.style.display = 'none';
+}
+
 let saveTimer = null;
 function saveDB(){
+  if(!dbLoaded){
+    // refuse to write a workspace we have never managed to read
+    setSyncStatus('Not saved — data never loaded');
+    showLoadFailure('A change was not saved because the workspace has not loaded.');
+    return;
+  }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
     try{
@@ -488,6 +538,7 @@ function subscribeToChanges(){
 async function pollForUpdates(manual){
   // manual "Refresh now" fallback — pulls the latest copy on demand
   if(manual) setSyncStatus('Checking…');
+  if(!dbLoaded){ await loadDB(); return; }   // still never loaded — retry the read properly
   const {data, error} = await sb.from('app_data').select('data').eq('id', APP_DATA_ROW_ID).single();
   if(error){ setSyncStatus('Offline — will retry'); return; }
   const json = JSON.stringify(data.data);
