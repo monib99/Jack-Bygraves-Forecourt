@@ -5435,6 +5435,127 @@ function allMuzaribTotals(){
 /* ---------- list page ---------- */
 let mzView = 'list', activeMuzaribId = null, mzMonth = null;
 
+
+/* ======================================================================
+   One-off import of the opening stock from the Muzaribat workbook
+   (MUZARIBAT FILE UPDATED 12 OCT 2026). Cars only - cash and profit are
+   left alone, because the cash side is already entered by hand and
+   writing it again would double it.
+   ====================================================================== */
+const MZ_OPENING = [{"sheet": "MZ HAJI WAHEED","cash": 2170.31,"profit": 6473.92,"cars": [{"reg": "DF16 XMX","make": "Nissan","model": "Juke","cost": 4955},{"reg": "FE64 YCZ","make": "Ford","model": "Focus","cost": 3126}]},{"sheet": "Wardak sahib","cash": 4074.98,"profit": 11141.58,"cars": [{"reg": "FL14 LFY","make": "Toyota","model": "Aygo","cost": 2357.21},{"reg": "FH62 UUR","make": "Vauxhall","model": "Insignia","cost": 1692},{"reg": "BF16 VXR","make": "Ford","model": "Focus","cost": 1887},{"reg": "EA14 TVW","make": "Hyundai","model": "I10","cost": 2175}]},{"sheet": "IBRAHIM WARDAK","cash": 3974.44,"profit": -3250.63,"cars": [{"reg": "SL09 VAU","make": "Volkswagen","model": "Golf Plus","cost": 5188.38},{"reg": "DK15 HYC","make": "Vauxhall","model": "Corsa","cost": 4761.07},{"reg": "SV63 YVE","make": "Volkswagen","model": "Polo","cost": 2513.86}]},{"sheet": "ABDULLAH","cash": 12550.32,"profit": 6355.6,"cars": [{"reg": "WM60 ELO","make": "Mercedes-Benz","model": "","cost": 969},{"reg": "HK10 FUP","make": "Ford","model": "KA","cost": 1600}]},{"sheet": "ANSAR","cash": 2461.03,"profit": 3488.03,"cars": [{"reg": "WR65 EDP","make": "Fiat","model": "500","cost": 2209},{"reg": "GU63 ZTC","make": "Chevrolet","model": "","cost": 1199.5}]},{"sheet": "ZAHIR","cash": 55.04,"profit": 9083.58,"cars": [{"reg": "SL67 RMZ","make": "Ford","model": "C-Max 1.0 E/B 100 Zetec MPV","cost": 6357.8},{"reg": "PN13 HBU","make": "Volkswagen","model": "Golf","cost": 5370.53}]},{"sheet": "abdul sami","cash": 7244.81,"profit": 8755.45,"cars": [{"reg": "FV10 JWE","make": "Honda","model": "Jazz","cost": 2677.5},{"reg": "CV57 VGU","make": "Vauxhall","model": "Corsa","cost": 1321.34},{"reg": "ND16 NMM","make": "Ford","model": "Focus","cost": 2767},{"reg": "PE65 UBN","make": "Vauxhall","model": "Mokka","cost": 4420},{"reg": "RK65 WEU","make": "Kia","model": "Sportage","cost": 2974}]},{"sheet": "YAQOOB","cash": 2169,"profit": 593.35,"cars": [{"reg": "YM63 BYZ","make": "Ford","model": "Kuga","cost": 2136.35},{"reg": "LN63 MXP","make": "Peugeot","model": "208","cost": 1288}]},{"sheet": "DR Naseer","cash": 9159.23,"profit": 2196.23,"cars": [{"reg": "DP65 KLD","make": "Nissan","model": "Qashqai","cost": 3037}]},{"sheet": "NIAZ","cash": 381.84,"profit": 596.84,"cars": [{"reg": "FH64 NLZ","make": "Ford","model": "Focus","cost": 2165},{"reg": "MA63 UDW","make": "Kia","model": "Picanto","cost": 1950}]}];
+function mzKeyWords(s){
+  const stop = ['mz','haji','sahib','sahab','dr','mr','son','of','the','cars'];
+  return String(s||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/)
+    .filter(w=>w && stop.indexOf(w)<0);
+}
+function mzGuessInvestor(sheet){
+  const want = mzKeyWords(sheet);
+  let best = null, bestScore = 0;
+  muzaribs().forEach(m=>{
+    const have = mzKeyWords(m.name);
+    let score = 0;
+    want.forEach(w=>{ if(have.indexOf(w)>=0) score++; });
+    if(score > bestScore){ bestScore = score; best = m; }
+  });
+  return bestScore ? best : null;
+}
+function openMzImport(){
+  if(!isSuperAdmin()) return;
+  const rows = MZ_OPENING.map((g,i)=>{
+    const guess = mzGuessInvestor(g.sheet);
+    const already = g.cars.filter(c=>findVehicleByReg(c.reg)).length;
+    const total = g.cars.reduce((t,c)=>t+c.cost,0);
+    const inApp = guess ? muzaribPosition(guess.id) : null;
+    return `<tr>
+      <td><b>${escapeHtml(g.sheet)}</b>
+        <div class="small-muted">${g.cars.map(c=>escapeHtml(c.reg)).join(' · ')}</div></td>
+      <td><select id="mzi_${i}" style="min-width:150px">
+        <option value="">— skip this one —</option>
+        ${muzaribs().map(m=>`<option value="${m.id}" ${guess&&guess.id===m.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}
+      </select></td>
+      <td class="num">${g.cars.length}${already?` <span class="tag tag-grey">${already} already in stock</span>`:''}</td>
+      <td class="num"><b>${fmtMoney(total)}</b></td>
+      <td class="num">${inApp?fmtMoney(inApp.cash):'—'}</td>
+      <td class="num">${inApp?`<span style="color:${Math.abs((inApp.cash-total)-g.cash)<0.01?'var(--green)':'var(--red)'}">${fmtMoney(inApp.cash-total)}</span>`:'—'}</td>
+      <td class="num">${fmtMoney(g.cash)}</td>
+    </tr>`;
+  }).join('');
+  const grand = MZ_OPENING.reduce((t,g)=>t+g.cars.reduce((x,c)=>x+c.cost,0),0);
+  openModal(`
+    <button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Import opening stock from the Muzaribat file</h3>
+    <div class="small-muted" style="margin-bottom:10px">
+      Creates one vehicle per car, already funded by that investor, with the cost from the sheet.
+      A registration already in stock is skipped, so running this twice changes nothing.
+      <b>Cash and profit are not touched</b> — compare the last two columns and fix any difference yourself.
+    </div>
+    <div style="max-height:46vh;overflow:auto">
+    <table><thead><tr><th>Sheet</th><th>Goes to</th><th class="num">Cars</th>
+      <th class="num">Stock value</th><th class="num">Cash now</th><th class="num">Cash after</th>
+      <th class="num">Cash on sheet</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div style="margin-top:10px;font-size:13px"><b>${MZ_OPENING.reduce((t,g)=>t+g.cars.length,0)} cars · ${fmtMoney(grand)}</b> in total.</div>
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="mzi_balance" checked style="width:17px;height:17px;margin-top:2px"/>
+      <span><b>Also put in the capital these cars were bought with.</b>
+      Buying a car moves money out of cash, so importing stock on its own would push cash negative.
+      With this ticked, each investor gets one opening entry that leaves their cash exactly on the
+      <b>Cash on sheet</b> figure — so cash, stock and total all match the file.</span>
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="runMzImport()">Import the cars</button>
+    </div>`);
+}
+function runMzImport(){
+  if(!isSuperAdmin()) return;
+  let made = 0, skipped = 0, skippedGroups = 0, balanced = 0;
+  const balEl = document.getElementById('mzi_balance');
+  const balance = balEl ? !!balEl.checked : false;
+  const touched = [];
+  MZ_OPENING.forEach((g,i)=>{
+    const sel = document.getElementById('mzi_'+i);
+    const mid = sel ? sel.value : '';
+    if(!mid){ skippedGroups++; return; }
+    touched.push({id:mid, i:i});
+    g.cars.forEach(c=>{
+      if(findVehicleByReg(c.reg)){ skipped++; return; }
+      const v = {
+        id: nextId('veh'), reg: c.reg, make: c.make, model: c.model,
+        ownerType: 'muzarib', muzaribId: mid,
+        year:'', color:'', mileage:'', status:'ready',
+        askingPrice: 0, dateAdded: todayISO(),
+        costs:{purchase:c.cost,delivery:0,service:0,mot:0,bodywork:0,mechanical:0,autotrader:0,fuel:0,other:0},
+        checklist: CHECKLIST_TEMPLATE.map(name=>({name, ok:false, ans:'', note:''})),
+        issues:[], photos:[], invoicePhotoIds:[], sale:null,
+        note: 'Opening stock imported from the Muzaribat file, 12 Oct 2026'
+      };
+      DB.vehicles.push(v); made++;
+      logChange('stock','Imported opening stock', vehRef(v), '', '', '',
+        'Funded by ' + muzaribName(mid) + ' · purchase ' + fmtMoney(c.cost));
+    });
+  });
+  if(balance){
+    if(!DB.muzaribTx) DB.muzaribTx = [];
+    touched.forEach(mid=>{
+      const g = MZ_OPENING[mid.i];
+      const p = muzaribPosition(mid.id);
+      const delta = Math.round((g.cash - p.cash) * 100) / 100;
+      if(Math.abs(delta) < 0.01) return;
+      DB.muzaribTx.push({id:nextId('mztx'), muzaribId:mid.id,
+        type: delta > 0 ? 'capital' : 'withdrawal', amount: Math.abs(delta),
+        date: todayISO(), method:'Opening balance',
+        note:'Opening capital for the stock held, from the Muzaribat file 12 Oct 2026',
+        addedBy: (typeof currentUserName!=='undefined' ? currentUserName : '')});
+      balanced++;
+    });
+  }
+  saveDB(); closeModal(); render();
+  alert(made + ' car' + (made===1?'':'s') + ' added to stock.'
+    + (balanced ? '\n' + balanced + ' investor balance(s) topped up so the cash matches the sheet.' : '')
+    + (skipped ? '\n' + skipped + ' skipped — already in stock.' : '')
+    + (skippedGroups ? '\n' + skippedGroups + ' sheet(s) skipped — no investor chosen.' : ''));
+}
 function renderMuzaribat(){
   if(activeMuzaribId) return renderMuzaribProfile(activeMuzaribId);
   const list = muzaribs();
@@ -5443,6 +5564,7 @@ function renderMuzaribat(){
   <div class="topbar">
     <div><h1>Muzaribat</h1><div class="date">Investor-funded stock &mdash; positions, profits and withdrawals</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${isSuperAdmin()?`<button class="btn btn-ghost" onclick="openMzImport()">📥 Import stock from the MZ file</button>`:''}
       ${isSuperAdmin()?`<button class="btn btn-ghost" onclick="openRepair()">🔧 Fix the data</button>`:''}
       <button class="btn btn-brand" onclick="openMuzaribForm()">+ Add investor</button>
     </div>
@@ -5555,7 +5677,7 @@ function renderMuzaribProfile(id){
       <td>${fmtDate(t.date)}</td>
       <td><span class="tag ${t.type==='capital'?'tag-green':(t.type==='withdrawal'?'tag-amber':(t.type==='spend'?'tag-blue':'tag-grey'))}">${MZ_TX_TYPES[t.type].label}</span></td>
       <td>${escapeHtml(t.note||'')}</td>
-      <td>${escapeHtml(t.method||'&mdash;')}</td>
+      <td>${t.method ? escapeHtml(t.method) : '—'}</td>
       <td style="font-weight:700;color:${t.type==='withdrawal'?'var(--red)':'inherit'}">${t.type==='withdrawal'?'&minus; ':''}${fmtMoney(Math.abs(t.amount))}</td>
       <td style="white-space:nowrap">
         ${isSuperAdmin()?`<button class="btn btn-sm btn-ghost" onclick="openEditMzTx('${t.id}')" title="Change the amount, date or type">Edit</button>`:''}
