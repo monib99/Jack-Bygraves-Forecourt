@@ -358,7 +358,7 @@
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
         <div style="margin-top:6px;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="pollForUpdates(true)">Refresh now</div>
-        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-29 b69</span></div>
+        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-29 b70</span></div>
         <div id="notifyToggle" style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="toggleNotifications()">🔕 Turn on reminders</div>
         <div id="storageTestLink" style="margin-top:10px;cursor:pointer;color:#C7CCD1;text-decoration:underline;display:none;" onclick="testPhotoStorage()">Test photo storage</div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="doLogout()">Sign out</div>
@@ -4474,6 +4474,7 @@ function openMzRebuild(){
   openModal(`
     <button class="close-x" onclick="closeModal()">✕</button>
     <h3>Rebuild investors from the Muzaribat file</h3>
+    <div class="small-muted" style="margin:-6px 0 8px">Build <b>${(document.getElementById('buildStamp')||{}).textContent||'?'}</b> · ${MZ_REBUILD.investors.length} investors in this file</div>
     <div class="small-muted" style="margin-bottom:10px">
       This <b>replaces</b> every cash entry for the investors below and rewrites the money on their cars.
       Photos, issues and vehicle checks are kept. Profit is not written anywhere — it comes out of the
@@ -4559,7 +4560,7 @@ function runMzRebuild(){
     });
     const got = muzaribPosition(mid);
     const e = p.g.expect;
-    report.push({name:(mz&&mz.name)||p.g.name, g:p.g,
+    report.push({name:(mz&&mz.name)||p.g.name, g:p.g, prior:got.prior.length,
       cash:got.cash, stock:got.tiedUp, profit:got.profit,
       dc:got.cash-e.cash, ds:got.tiedUp-e.stock, dp:got.profit-e.profit,
       extra:p.extra});
@@ -4586,7 +4587,7 @@ function mzRebuildReport(report){
   const rows = report.map(function(r){
     const good = ok(r.dc) && ok(r.ds) && ok(r.dp);
     return `<tr>
-      <td><b>${escapeHtml(r.name)}</b></td>
+      <td><b>${escapeHtml(r.name)}</b>${r.prior?`<div class="small-muted">${r.prior} on the closed earlier account</div>`:''}</td>
       <td class="num">${fmtMoney(r.cash)}</td>
       <td class="num">${fmtMoney(r.stock)}</td>
       <td class="num">${fmtMoney(r.profit)}</td>
