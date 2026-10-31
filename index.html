@@ -358,7 +358,7 @@
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
         <div style="margin-top:6px;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="pollForUpdates(true)">Refresh now</div>
-        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b81</span></div>
+        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b82</span></div>
         <div id="notifyToggle" style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="toggleNotifications()">🔕 Turn on reminders</div>
         <div id="storageTestLink" style="margin-top:10px;cursor:pointer;color:#C7CCD1;text-decoration:underline;display:none;" onclick="testPhotoStorage()">Test photo storage</div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="doLogout()">Sign out</div>
@@ -3508,6 +3508,7 @@ async function renderVehicleDetail(){
     <div class="chip-row">${tabs.map(([k,l])=>`<div class="chip ${activeVehicleTab===k?'active':''}" onclick="switchVehicleTab('${k}')">${l}</div>`).join('')}</div>
     <div>${inner}</div>
   `;
+  if(activeVehicleTab==='sale' && !v.sale){ try{ saleDraftAttach(v); }catch(e){} }
 }
 function switchVehicleTab(tab){ activeVehicleTab=tab; renderVehicleDetail(); }
 function changeVehicleStatus(id, status){
@@ -4152,6 +4153,9 @@ function vehicleSaleTab(v){
       </div>
     </div>`:''}
     ${licenceCard(v)}
+    ${v.saleDraft?`<div class="small-muted" style="background:var(--brand-dim);border-radius:7px;padding:8px 10px;margin-bottom:10px">
+      Picked up where you left off — nothing here is saved as a sale until you confirm it.
+      <a class="link" onclick="discardSaleDraft('${v.id}')">Clear the form</a></div>`:''}
     <div class="field"><label>Customer</label>
       <input id="s_custSearch" placeholder="Search name, phone, email or postcode…" style="margin-bottom:6px"
         oninput="searchSalesCustomer('${v.id}')"/>
@@ -4159,7 +4163,9 @@ function vehicleSaleTab(v){
         <option value="">— Select existing customer —</option>
         ${customerOptions(v.sale?v.sale.customerId:(v.saleDraftCustomerId||''))}
       </select>
-      <div class="small-muted" style="margin-top:6px;">Showing the 5 most recent — search above for anyone else. Not on the list? <a class="link" onclick="openAddCustomer(true)">Add a new customer</a></div>
+      <div class="small-muted" style="margin-top:6px;">Showing the 5 most recent — search above for anyone else.
+        <a class="link" onclick="openEditSaleCustomer('${v.id}')">Edit their details</a> before the invoice goes out.
+        Not on the list? <a class="link" onclick="openAddCustomer(true)">Add a new customer</a></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Sale price (£)</label><input id="s_price" type="number" value="${v.askingPrice||0}"/></div>
@@ -4398,6 +4404,8 @@ function confirmSale(vId){
     wasSold?fmtMoney(prevSale.salePrice):'', fmtMoney(v.sale.salePrice),
     'Profit ' + fmtMoney(vehicleProfit(v)) + (isMuzaribCar(v) ? ' · investor ' + muzaribName(v.muzaribId) + ' receives ' + fmtMoney(carSettlement(v).investor) : ''));
   pxIntoStock(v);
+  delete v.saleDraft;                 // the form has become a real sale
+  clearTimeout(saleDraftTimer);
   saveDB();
   renderVehicleDetail();
 }
@@ -5113,6 +5121,126 @@ function depositFromLead(vId){
    it never enters the investor split */
 
 /* ---------- extra charges on a sale ---------- */
+/* ---------------------------------------------------------------------------
+   Keeping a half-finished sale form.
+   Opening the invoice, editing the customer or flicking to another tab used to
+   redraw this screen from scratch, which threw away everything typed. The form
+   now writes itself to v.saleDraft on every keystroke and puts itself back.
+   --------------------------------------------------------------------------- */
+const SALE_DRAFT_FIELDS = ['s_customer','s_price','s_discount','s_date','s_time',
+  's_pxreg','s_pxval','s_pxmake','s_pxmodel','s_pxyear','s_pxmiles','s_pxcolour','s_pxFaults',
+  's_admin','s_delivery','s_warranty','s_motInc','s_warrMonths','s_warrCover','s_extrasText',
+  's_deposit','s_payBank','s_payCard','s_payCash'];
+const SALE_DRAFT_TICKS = ['s_hasPx','s_tradeSale'];
+let saleDraftTimer = null;
+
+function saleDraftCapture(v){
+  if(!v || v.sale) return;
+  if(!document.getElementById('s_price')) return;   // the form is not on screen
+  const d = { f:{}, t:{}, extras:[], at: new Date().toISOString() };
+  SALE_DRAFT_FIELDS.forEach(function(id){ const el=document.getElementById(id); if(el) d.f[id]=el.value; });
+  SALE_DRAFT_TICKS.forEach(function(id){ const el=document.getElementById(id); if(el) d.t[id]=!!el.checked; });
+  d.extras = [].slice.call(document.querySelectorAll('#extraRows .xrow')).map(function(r){
+    return { what:(r.querySelector('.xWhat')||{value:''}).value,
+             amt: (r.querySelector('.xAmt')||{value:''}).value };
+  });
+  v.saleDraft = d;
+  if(d.f.s_customer) v.saleDraftCustomerId = d.f.s_customer;
+  clearTimeout(saleDraftTimer);
+  saleDraftTimer = setTimeout(function(){ try{ saveDB(); }catch(e){} }, 1200);
+}
+
+function saleDraftApply(v){
+  const d = v && v.saleDraft; if(!d) return false;
+  let touched = false;
+  SALE_DRAFT_FIELDS.forEach(function(id){
+    if(!(id in d.f)) return;
+    const el = document.getElementById(id); if(!el) return;
+    if(id==='s_customer'){
+      // only if that customer is still in the list, otherwise leave it alone
+      if(![].some.call(el.options, function(o){ return o.value===d.f[id]; })) return;
+    }
+    el.value = d.f[id]; touched = true;
+  });
+  SALE_DRAFT_TICKS.forEach(function(id){
+    if(!(id in d.t)) return;
+    const el = document.getElementById(id); if(el) el.checked = d.t[id];
+  });
+  if(Array.isArray(d.extras)){
+    const box = document.getElementById('extraRows');
+    if(box) box.innerHTML = d.extras.map(function(x){ return extraRowHTML(x.what, x.amt===''?'':x.amt); }).join('');
+  }
+  try{ togglePxFields(!!(document.getElementById('s_hasPx')||{}).checked); }catch(e){}
+  try{ updatePayTotal(); }catch(e){}
+  try{ saleWarrChanged(); }catch(e){}
+  return touched;
+}
+
+/* Called once each time the sale form is drawn: put the draft back, then listen
+   for anything the user types so the next redraw has something to put back. */
+function saleDraftAttach(v){
+  if(!v || v.sale) return;
+  const form = document.getElementById('saleForm') || document.getElementById('main');
+  saleDraftApply(v);
+  if(!form || form.dataset.saleDraftWired === v.id) return;
+  form.dataset.saleDraftWired = v.id;
+  const hit = function(){ saleDraftCapture(v); };
+  form.addEventListener('input', hit, true);
+  form.addEventListener('change', hit, true);
+}
+
+function clearSaleDraft(v, redraw){
+  if(!v) return;
+  delete v.saleDraft;
+  clearTimeout(saleDraftTimer);
+  try{ saveDB(); }catch(e){}
+  if(redraw) renderVehicleDetail();
+}
+function discardSaleDraft(vId){
+  const v = DB.vehicles.find(function(x){ return x.id===vId; }); if(!v) return;
+  if(!confirm('Clear everything typed on this sale form and start again?')) return;
+  const form = document.getElementById('saleForm') || document.getElementById('main');
+  if(form) delete form.dataset.saleDraftWired;
+  clearSaleDraft(v, true);
+}
+
+/* ---- edit an existing customer without leaving the sale -------------------- */
+function openEditSaleCustomer(vId){
+  const sel = document.getElementById('s_customer');
+  const id = sel ? sel.value : '';
+  if(!id){ alert('Choose the customer first, then you can correct their details.'); return; }
+  const c = (DB.customers||[]).find(function(x){ return x.id===id; });
+  if(!c){ alert('That customer is no longer on file.'); return; }
+  const v = DB.vehicles.find(function(x){ return x.id===vId; });
+  if(v) saleDraftCapture(v);
+  openModal(`<button class="close-x" onclick="closeModal()">✕</button><h3>Edit customer</h3>
+    <div class="small-muted" style="margin:-6px 0 10px">These details print on the invoice. Changing them here changes them everywhere this customer appears.</div>
+    <div class="field"><label>Name</label><input id="ec_name" value="${escapeAttr(c.name||'')}"/></div>
+    <div class="field-row"><div class="field"><label>Phone</label><input id="ec_phone" value="${escapeAttr(c.phone||'')}"/></div>
+      <div class="field"><label>Email</label><input id="ec_email" value="${escapeAttr(c.email||'')}"/></div></div>
+    <div class="field-row"><div class="field"><label>Address</label><input id="ec_address" value="${escapeAttr(c.address||'')}"/></div>
+      <div class="field"><label>Postcode</label><input id="ec_postcode" style="text-transform:uppercase" value="${escapeAttr(c.postcode||'')}"/></div></div>
+    <div class="field"><label>Notes</label><textarea id="ec_notes" rows="2">${escapeHtml(c.notes||c.note||'')}</textarea></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveSaleCustomer('${vId}','${id}')">Save details</button></div>`);
+}
+function saveSaleCustomer(vId, id){
+  const c = (DB.customers||[]).find(function(x){ return x.id===id; }); if(!c) return;
+  const g = function(i){ const el=document.getElementById(i); return el ? el.value : ''; };
+  const name = g('ec_name').trim();
+  if(!name){ alert('A customer needs a name.'); return; }
+  const before = [c.name,c.phone,c.email,c.address,c.postcode].join(' | ');
+  c.name = name;
+  c.phone = g('ec_phone').trim();
+  c.email = g('ec_email').trim();
+  c.address = g('ec_address').trim();
+  c.postcode = g('ec_postcode').trim().toUpperCase();
+  c.notes = g('ec_notes');
+  const after = [c.name,c.phone,c.email,c.address,c.postcode].join(' | ');
+  if(before !== after){ try{ logChange('customer','Customer details edited', c.name, 'Details', before, after, ''); }catch(e){} }
+  saveDB(); closeModal(); renderVehicleDetail();
+}
+
 function extraRowHTML(what, amt){
   const e = x => String(x==null?'':x).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   return `<div class="xrow field-row" style="align-items:flex-end">
