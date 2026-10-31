@@ -358,7 +358,7 @@
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
         <div style="margin-top:6px;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="pollForUpdates(true)">Refresh now</div>
-        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b79</span></div>
+        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b80</span></div>
         <div id="notifyToggle" style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="toggleNotifications()">🔕 Turn on reminders</div>
         <div id="storageTestLink" style="margin-top:10px;cursor:pointer;color:#C7CCD1;text-decoration:underline;display:none;" onclick="testPhotoStorage()">Test photo storage</div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="doLogout()">Sign out</div>
@@ -4118,6 +4118,7 @@ function vehicleSaleTab(v){
         <tr><td>Delivery charge</td><td>${fmtMoney(s.deliveryCharge)}</td></tr>
         <tr><td>Warranty</td><td>${fmtMoney(s.warranty)}</td></tr>
         <tr><td>Extra package</td><td>${fmtMoney(s.extraPackage)}</td></tr>
+        ${saleExtrasLine(s)?`<tr><td>Included</td><td>${escapeHtml(saleExtrasLine(s))}</td></tr>`:''}
         <tr><td style="font-weight:700">Net received</td><td style="font-weight:700">${fmtMoney(vehicleNetSale(v))}</td></tr>
         <tr><td style="font-weight:700">Profit</td><td style="font-weight:700;color:${vehicleProfit(v)>=0?'var(--green)':'var(--red)'}">${fmtMoney(vehicleProfit(v))}</td></tr>
       </table>
@@ -4200,8 +4201,22 @@ function vehicleSaleTab(v){
     <div class="small-muted" style="margin:-4px 0 8px">Anything else the customer is paying for. Each line prints on the invoice with its own note, so write what it is for.</div>
     <div id="extraRows" data-vid="${v.id}">${saleExtrasSeed(v).map(x=>extraRowHTML(x.what,x.amt)).join('')}</div>
     <button class="btn btn-ghost btn-sm" type="button" onclick="addExtraRow()">+ Add a charge</button>
-    <div class="field"><label>Any extras (shown on the invoice)</label>
-      <input id="s_extrasText" placeholder="e.g. 3 MONTHS WARRANTY (GEARBOX AND ENGINE)" value="${(v.sale&&v.sale.extrasText)||''}"/></div>
+    <div class="section-title" style="margin-top:12px"><h2>What is included</h2></div>
+    <div class="small-muted" style="margin:-4px 0 8px">Tick what the car goes out with. It writes itself onto the invoice under <b>Any extras</b>.</div>
+    <div class="field-row">
+      <div class="field"><label>MOT</label><select id="s_motInc">
+        ${MOT_OPTIONS.map(function(o){ return '<option value="'+escapeAttr(o)+'"'+(((v.sale&&v.sale.motIncluded)||'')===o?' selected':'')+'>'+escapeHtml(o||'\u2014 not included \u2014')+'</option>'; }).join('')}
+      </select></div>
+      <div class="field"><label>Warranty</label><select id="s_warrMonths" onchange="saleWarrChanged()">
+        ${WARRANTY_OPTIONS.map(function(o){ return '<option value="'+escapeAttr(o)+'"'+(((v.sale&&v.sale.warrantyMonths)||'')===o?' selected':'')+'>'+escapeHtml(o||'\u2014 none \u2014')+'</option>'; }).join('')}
+      </select></div>
+      <div class="field"><label>What it covers</label><select id="s_warrCover">
+        ${WARRANTY_COVER.map(function(o){ return '<option value="'+escapeAttr(o)+'"'+(((v.sale&&v.sale.warrantyCover)||WARRANTY_COVER[0])===o?' selected':'')+'>'+escapeHtml(o)+'</option>'; }).join('')}
+      </select></div>
+    </div>
+    <div class="field"><label>Anything else included (free text)</label>
+      <input id="s_extrasText" placeholder="e.g. full service history, two keys" value="${escapeAttr((v.sale&&v.sale.extrasText)||'')}"/></div>
+    <div class="small-muted" id="s_extrasPreview" style="margin:-2px 0 8px"></div>
     <div class="section-title" style="margin-top:14px"><h2>Money received</h2></div>
     <div class="small-muted" style="margin:-4px 0 8px">Enter each payment once. These add up to the total received \u2014 anything left is the balance due.</div>
     <div class="field-row">
@@ -4354,6 +4369,9 @@ function confirmSale(vId){
     warranty: Number(document.getElementById('s_warranty').value)||0,
     extras: readExtras(), extraPackage: 0,
     extrasText: (document.getElementById('s_extrasText')||{value:''}).value.trim(),
+    motIncluded: (document.getElementById('s_motInc')||{value:''}).value,
+    warrantyMonths: (document.getElementById('s_warrMonths')||{value:''}).value,
+    warrantyCover: (document.getElementById('s_warrCover')||{value:''}).value,
     time: (document.getElementById('s_time')||{value:''}).value,
     deposit: Number((document.getElementById('s_deposit')||{value:0}).value)||0,
     payBank: Number((document.getElementById('s_payBank')||{value:0}).value)||0,
@@ -5079,6 +5097,31 @@ function saleExtrasSeed(v){
   if(Number(s.extraPackage)) return [{what:'Extra package', amt:Number(s.extraPackage)}];
   return [{what:'', amt:''}];
 }
+/* What the car goes out with. These three write the invoice's "Any extras"
+   line, so nobody has to remember the wording. */
+const MOT_OPTIONS = ['', '12 months MOT', '6 months MOT', 'MOT as current', 'New MOT on collection'];
+const WARRANTY_OPTIONS = ['', '3 month warranty', '6 month warranty', '12 month warranty', '24 month warranty'];
+const WARRANTY_COVER = ['engine & gearbox', 'engine, gearbox & clutch', 'comprehensive'];
+
+function saleExtrasLine(s){
+  s = s || {};
+  const bits = [];
+  if(s.motIncluded) bits.push(s.motIncluded);
+  if(s.warrantyMonths) bits.push(s.warrantyMonths + (s.warrantyCover ? ' (' + s.warrantyCover + ')' : ''));
+  const free = String(s.extrasText||'').trim();
+  if(free) bits.push(free);
+  return bits.join(' \u00b7 ');
+}
+
+/* keeps the little grey line under the pickers honest while you choose */
+function saleWarrChanged(){
+  const box = document.getElementById('s_extrasPreview'); if(!box) return;
+  const g = function(i){ const el=document.getElementById(i); return el?el.value:''; };
+  const line = saleExtrasLine({motIncluded:g('s_motInc'), warrantyMonths:g('s_warrMonths'),
+                               warrantyCover:g('s_warrCover'), extrasText:g('s_extrasText')});
+  box.innerHTML = line ? 'On the invoice: <b>' + escapeHtml(line) + '</b>' : 'Nothing extra will show on the invoice.';
+}
+
 function invoiceTotals(v, sale){
   const s = sale || v.sale || {};
   const price = Number(s.salePrice)||0, disc = Number(s.discount)||0, px = Number(s.partExValue)||0;
@@ -5124,6 +5167,7 @@ function draftSaleFromForm(v){
     payBank: num('s_payBank'), payCard: num('s_payCard'), payCash: num('s_payCash'),
     advertisedPrice: Number(v.askingPrice)||0,
     extrasText: txt('s_extrasText'),
+    motIncluded: txt('s_motInc'), warrantyMonths: txt('s_warrMonths'), warrantyCover: txt('s_warrCover'),
     tradeSale: !!(document.getElementById('s_tradeSale')||{}).checked,
     invoiceRef: (v.sale && v.sale.invoiceRef) || ''
   };
@@ -5283,7 +5327,7 @@ function printInvoice(vId, draftSale){
         ${pair('Mileage', v.mileage ? Number(v.mileage).toLocaleString('en-GB') : '')}
         ${pair('VIN number', v.vin)}
         ${pair('MOT', v.motExpiry ? fmtDate(v.motExpiry) : '')}
-        ${pair('Any extras', s.extrasText)}
+        ${pair('Any extras', saleExtrasLine(s))}
         ${DB.marginScheme?pair('Stock book ref', v.stockNo || v.reg):''}
       </table>
       <div class="bar">Price details</div>
