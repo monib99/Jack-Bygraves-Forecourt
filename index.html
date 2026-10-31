@@ -358,7 +358,7 @@
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
         <div style="margin-top:6px;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="pollForUpdates(true)">Refresh now</div>
-        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b82</span></div>
+        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b83</span></div>
         <div id="notifyToggle" style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="toggleNotifications()">🔕 Turn on reminders</div>
         <div id="storageTestLink" style="margin-top:10px;cursor:pointer;color:#C7CCD1;text-decoration:underline;display:none;" onclick="testPhotoStorage()">Test photo storage</div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="doLogout()">Sign out</div>
@@ -756,14 +756,25 @@ function vehicleCostTotal(v){
     .reduce((s,k)=> s + (Number(c[k])||0), 0);
   return base + partsTotal(v) + worksTotal(v);
 }
-function vehicleNetSale(v){
-  // What the car itself sold for. The admin fee charged to the customer is NOT
-  // part of this — it belongs to the company alone and is never shared with an
-  // investor, so it is added to the company side in carSettlement instead.
+/* What the car itself sold for. The admin fee charged to the customer is NOT
+   part of this — it belongs to the company alone and is never shared with an
+   investor, so it is added to the company side in carSettlement instead.
+
+   A part exchange is NOT deducted here. The allowance is how the customer paid
+   part of the price, not a cost of the sale: the car they handed over goes into
+   stock at that same allowance, so taking it off here as well would count the
+   same money twice and show a false loss. Whether the part exchange was a good
+   buy shows up as profit or loss on that car, where it belongs. */
+function vehicleSaleValue(v){
   if(!v.sale) return 0;
   const s = v.sale;
-  return (Number(s.salePrice)||0) - (Number(s.discount)||0) - (Number(s.partExValue)||0)
+  return (Number(s.salePrice)||0) - (Number(s.discount)||0)
     + (Number(s.deliveryCharge)||0) + (Number(s.warranty)||0) + (Number(s.extraPackage)||0);
+}
+function vehicleNetSale(v){ return vehicleSaleValue(v); }
+/* The money that actually came in, with the part exchange taken off. */
+function vehicleCashReceived(v){
+  return vehicleSaleValue(v) - (v.sale ? (Number(v.sale.partExValue)||0) : 0);
 }
 function customerAdminFee(v){ return v.sale ? (Number(v.sale.adminCharge)||0) : 0; }
 function vehicleProfit(v){ return vehicleNetSale(v) - vehicleCostTotal(v); }
@@ -4121,7 +4132,8 @@ function vehicleSaleTab(v){
         <tr><td>Warranty</td><td>${fmtMoney(s.warranty)}</td></tr>
         <tr><td>Extra package</td><td>${fmtMoney(s.extraPackage)}</td></tr>
         ${saleExtrasLine(s)?`<tr><td>Included</td><td>${escapeHtml(saleExtrasLine(s))}</td></tr>`:''}
-        <tr><td style="font-weight:700">Net received</td><td style="font-weight:700">${fmtMoney(vehicleNetSale(v))}</td></tr>
+        <tr><td style="font-weight:700">Sold for</td><td style="font-weight:700">${fmtMoney(vehicleSaleValue(v))}</td></tr>
+        ${(Number(s.partExValue)||0)?`<tr><td>Money received</td><td>${fmtMoney(vehicleCashReceived(v))}<div class="small-muted">the rest was paid with the part exchange, which is in stock at ${fmtMoney(s.partExValue)}</div></td></tr>`:''}
         <tr><td style="font-weight:700">Profit</td><td style="font-weight:700;color:${vehicleProfit(v)>=0?'var(--green)':'var(--red)'}">${fmtMoney(vehicleProfit(v))}</td></tr>
       </table>
       ${licenceCard(v)}
@@ -4348,6 +4360,13 @@ function pxIntoStock(v){
   nv.mileage = p.mileage || '';
   nv.costs.purchase = Number(s.partExValue)||0;
   nv.pxFromVehicleId = v.id;
+  /* The allowance came out of the price of v, so whoever funded v funded this
+     car too. Leaving it with the company would quietly move the investor's
+     money onto the company's books. Use "Move to company stock" to change it. */
+  if(fresh && v.ownerType==='muzarib' && v.muzaribId){
+    nv.ownerType = 'muzarib';
+    nv.muzaribId = v.muzaribId;
+  }
   nv.notes = 'Taken in part exchange against ' + v.reg + ' on ' + fmtDate(s.date)
            + (s.pxFaults ? ' \u2014 declared faults: ' + s.pxFaults : '');
   if(s.pxFaults && fresh){
