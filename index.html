@@ -358,7 +358,7 @@
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
         <div style="margin-top:6px;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="pollForUpdates(true)">Refresh now</div>
-        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b80</span></div>
+        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-10-31 b81</span></div>
         <div id="notifyToggle" style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="toggleNotifications()">🔕 Turn on reminders</div>
         <div id="storageTestLink" style="margin-top:10px;cursor:pointer;color:#C7CCD1;text-decoration:underline;display:none;" onclick="testPhotoStorage()">Test photo storage</div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="doLogout()">Sign out</div>
@@ -4109,6 +4109,7 @@ function vehicleSaleTab(v){
     return `<div class="card">
       <h3 style="margin-top:0">Sale record</h3>
       <table>
+        <tr><td>Invoice number</td><td><b>${escapeHtml(s.invoiceRef||'—')}</b>${isSuperAdmin()?` <a class="link" onclick="editInvoiceNo('${v.id}')" style="font-weight:400">change</a>`:''}</td></tr>
         <tr><td>Customer</td><td>${(DB.customers.find(c=>c.id===s.customerId)||{}).name||'—'}</td></tr>
         <tr><td>Sale date</td><td>${fmtDate(s.date)}</td></tr>
         <tr><td>Sale price</td><td>${fmtMoney(s.salePrice)}</td></tr>
@@ -5025,13 +5026,46 @@ function termsForSale(s){ return (s && s.tradeSale) ? invoiceTradeTerms() : invo
 function invoiceDeclaration(){ return (DB.invoiceDeclaration && DB.invoiceDeclaration.length) ? DB.invoiceDeclaration : INVOICE_DECLARATION_DEFAULT; }
 function invoiceNote(){ return DB.invoiceNote || INVOICE_NOTE_DEFAULT; }
 function invoicePrefix(){ return DB.invoicePrefix || (String(DB.bizName||'INV').split(/\s+/).map(w=>w[0]||'').join('').toUpperCase().slice(0,3) || 'INV'); }
+function invoicePad(){ const n = Number(DB.invoicePad); return (n>0 && n<=8) ? n : 0; }
+/* the one place a number turns into a reference, so every screen agrees */
+function fmtInvoiceNo(n){
+  let t = String(Math.max(0, Math.round(Number(n)||0)));
+  const pad = invoicePad();
+  while(t.length < pad) t = '0' + t;
+  return invoicePrefix() + '-' + t;
+}
+function invoiceNoUsed(ref, exceptVehicleId){
+  const want = String(ref||'').trim().toUpperCase();
+  if(!want) return null;
+  return DB.vehicles.find(function(x){
+    return x.id !== exceptVehicleId && x.sale && String(x.sale.invoiceRef||'').trim().toUpperCase() === want;
+  }) || null;
+}
 function nextInvoiceRef(){
   const used = DB.vehicles.filter(x=>x.sale && x.sale.invoiceRef)
     .map(x=>parseInt(String(x.sale.invoiceRef).replace(/\D+/g,''),10)).filter(n=>!isNaN(n));
   const start = Number(DB.invoiceStart)||0;
   const n = Math.max(start, used.length?Math.max.apply(null,used):0) + 1;
   DB.invoiceSeq = n;
-  return invoicePrefix()+'-'+n;
+  return fmtInvoiceNo(n);
+}
+
+/* Super Admin only: put a different number on a sale that is already recorded.
+   The paper book and the app have to agree, so this has to be changeable. */
+function editInvoiceNo(vId){
+  if(!isSuperAdmin()){ alert('Only a Super Admin can change an invoice number.'); return; }
+  const v = DB.vehicles.find(x=>x.id===vId); if(!v || !v.sale) return;
+  const was = v.sale.invoiceRef || '';
+  const got = prompt('Invoice number for ' + (v.reg||'this car') + '\n\nLeave the prefix in, e.g. ' + fmtInvoiceNo(569) + '.', was);
+  if(got === null) return;
+  const ref = String(got).trim().toUpperCase();
+  if(!ref){ alert('An invoice number cannot be blank.'); return; }
+  if(ref === was) return;
+  const clash = invoiceNoUsed(ref, vId);
+  if(clash && !confirm(ref + ' is already on ' + (clash.reg||'another car') + '.\n\nTwo cars sharing one invoice number will confuse your records. Use it anyway?')) return;
+  v.sale.invoiceRef = ref;
+  logChange('sale','Invoice number changed', vehRef(v), 'Invoice number', was||'(none)', ref, '');
+  saveDB(); renderVehicleDetail();
 }
 
 /* one-time: the paper book ran to JBG-560, so the app carries on from 561 */
@@ -5039,6 +5073,17 @@ function seedInvoiceStart561(){
   if(DB.invStartFrom561) return;
   DB.invStartFrom561 = true;
   if(Number(DB.invoiceStart||0) < 560) DB.invoiceStart = 560;
+  saveDB();
+}
+
+/* one-time: the book has reached JBG-0568, so the next sale is JBG-0569.
+   This overrides the earlier auto-guessed prefix (it had settled on JBF). */
+function seedInvoiceStart569(){
+  if(DB.invStartFrom569) return;
+  DB.invStartFrom569 = true;
+  DB.invoicePrefix = 'JBG';
+  DB.invoicePad = 4;
+  if(Number(DB.invoiceStart||0) < 568) DB.invoiceStart = 568;
   saveDB();
 }
 
@@ -7012,7 +7057,9 @@ function invoiceSettingsCard(){
     </label>
     <div class="field-row">
       <div class="field"><label>Invoice prefix</label><input id="iv_prefix" value="${escapeAttr(DB.invoicePrefix||invoicePrefix())}" placeholder="JBG"/></div>
-      <div class="field"><label>Carry on from number</label><input id="iv_start" type="number" value="${Number(DB.invoiceStart)||0}" placeholder="560"/></div>
+      <div class="field"><label>Carry on from number</label><input id="iv_start" type="number" value="${Number(DB.invoiceStart)||0}" placeholder="568"/></div>
+      <div class="field"><label>Digits (0 = no padding)</label><input id="iv_pad" type="number" min="0" max="8" value="${invoicePad()}" placeholder="4"/></div>
+      <div class="field"><label>Next sale gets</label><input value="${escapeAttr(nextInvoiceRef())}" disabled/></div>
       <div class="field"><label>Footer line</label><input id="iv_footer" value="${escapeAttr(DB.invoiceFooter||'')}" placeholder="Thank you for your business"/></div>
     </div>
     ${ta('iv_terms','Terms and conditions \u2014 consumer sales', invoiceTerms().join('\n'), 9)}
@@ -7042,6 +7089,7 @@ function saveInvoiceSettings(){
   DB.marginScheme   = !!(document.getElementById('iv_margin')||{}).checked;
   DB.invoicePrefix  = val('iv_prefix').trim().toUpperCase();
   DB.invoiceStart   = Number(val('iv_start'))||0;
+  DB.invoicePad     = Math.max(0, Math.min(8, Number(val('iv_pad'))||0));
   DB.invoiceFooter  = val('iv_footer').trim();
   DB.invoiceTerms       = lines('iv_terms');
   DB.invoicePxTerms     = lines('iv_pxterms');
@@ -13265,6 +13313,7 @@ async function enterApp(user){
   document.getElementById('loginScreen').style.display = 'none';
   try{ seedInvoiceHeader(); }catch(e){}
   try{ seedInvoiceStart561(); }catch(e){}
+  try{ seedInvoiceStart569(); }catch(e){}
   document.getElementById('app').style.display = 'flex';
   currentUserEmail = (user.email||'').toLowerCase();
   await loadDB();
