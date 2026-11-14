@@ -305,6 +305,47 @@
     #mobileMenuToggle{ display:none; }
     #sidebarNavItems{ display:flex !important; flex-direction:column; }
   }
+
+.flt{display:flex;gap:12px;align-items:stretch;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:0;margin-bottom:8px;overflow:hidden;transition:box-shadow .12s}
+.flt:hover{box-shadow:0 2px 10px rgba(0,0,0,.07)}
+.flt-spine{width:4px;flex:0 0 4px;background:var(--line)}
+.flt-sp-green{background:#1a9a52}.flt-sp-amber{background:#e08900}.flt-sp-blue{background:#2b6fd4}
+.flt-sp-red{background:#d12b20}.flt-sp-grey{background:#9aa1ab}
+.flt-shot{width:74px;height:74px;flex:0 0 74px;object-fit:cover;background:#eef0f2;align-self:center;
+  border-radius:8px;margin:10px 0 10px 10px;cursor:pointer}
+.flt-none{width:74px;height:74px;flex:0 0 74px;background:#f3f5f7;border:1px dashed var(--line);
+  border-radius:8px;margin:10px 0 10px 10px;display:flex;align-items:center;justify-content:center;
+  color:#aab0b8;font-size:19px;cursor:pointer;align-self:center}
+.flt-body{flex:1;min-width:0;padding:11px 12px 11px 2px}
+.flt-reg{font-weight:800;font-size:15px;letter-spacing:.02em}
+.flt-desc{color:var(--muted);font-size:12px;margin-left:7px}
+.flt-line2{margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.flt-where{font-size:12px;color:#4a515b}
+.flt-note{margin-top:4px;font-size:12.5px}
+.flt-meta{margin-top:4px;font-size:11px;color:var(--muted)}
+.flt-act{display:flex;flex-direction:column;gap:5px;justify-content:center;padding:10px 11px 10px 0}
+.flt-hist{margin-top:7px;border-top:1px solid var(--line);padding-top:6px;font-size:11px;
+  color:var(--muted);line-height:1.75}
+.flt-sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin:0 0 10px}
+.flt-sites .fs{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+  cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.flt-sites .fs:hover{border-color:var(--brand)}
+.flt-sites .fs.on{border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
+.flt-sites .fs.warn b{color:var(--amber)}
+.flt-sites .fs.bad b{color:var(--red)}
+.flt-sites .fs b{display:block;font-size:30px;line-height:1.05;font-weight:800}
+.flt-sites .fs span{display:block;font-size:13px;font-weight:700;margin-top:3px}
+.flt-sites .fs em{display:block;font-style:normal;font-size:11px;color:var(--muted);margin-top:1px}
+.flt-sum{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.flt-sum .s{border:1px solid var(--line);border-radius:10px;padding:9px 13px;min-width:92px}
+.flt-sum .s b{display:block;font-size:19px;line-height:1.1}
+.flt-sum .s span{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.flt-sum .s.on{border-color:var(--brand);background:var(--brand-dim)}
+@media(max-width:620px){
+  .flt-shot,.flt-none{width:56px;height:56px;flex:0 0 56px}
+  .flt-act{padding:10px 8px 10px 0}
+}
 </style>
 </head>
 <body>
@@ -342,6 +383,7 @@
         <div class="nav-head" onclick="navToggle('cars')"><span class="chev">▸</span>Cars &amp; customers<span class="dot"></span></div>
         <div class="nav-sub">
           <div class="nav-item" data-tab="stock" onclick="App.go('stock')">🚗 Stock</div>
+          <div class="nav-item" data-tab="fleet" onclick="App.go('fleet')">🚙 Car manager</div>
           <div class="nav-item" data-tab="leads" onclick="App.go('leads')">🎯 Leads <span class="dot"></span></div>
           <div class="nav-item" data-tab="customers" onclick="App.go('customers')">🧾 Customers &amp; Sales</div>
         </div>
@@ -371,7 +413,7 @@
         <div id="userEmailLabel" style="color:#EDEFEE;font-weight:600;margin-bottom:6px;"></div>
         <div id="syncStatus" style="color:#9AA0A6;">Connecting…</div>
         <div style="margin-top:6px;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="pollForUpdates(true)">Refresh now</div>
-        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-11-13 b147</span></div>
+        <div style="margin-top:6px;color:#7E858C;font-size:11px;letter-spacing:.03em;">Build <span id="buildStamp">2026-11-14 b152</span></div>
         <div id="notifyToggle" style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="toggleNotifications()">🔕 Turn on reminders</div>
         <div id="storageTestLink" style="margin-top:10px;cursor:pointer;color:#C7CCD1;text-decoration:underline;display:none;" onclick="testPhotoStorage()">Test photo storage</div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid #ffffff17;cursor:pointer;color:#C7CCD1;text-decoration:underline;" onclick="doLogout()">Sign out</div>
@@ -2703,7 +2745,34 @@ function daysToSell(v){
 /* =========================================================================
    RENDER ROOT
    ========================================================================= */
+/* Every search box calls render() as you type, and render() rebuilds the page,
+   which throws away the element you are typing into - so the caret jumped out
+   after one character and you had to click back in for the next one. Note what
+   was focused and where the caret was, then put it back once the new markup is
+   in. Keyed on a stable id, so the box has to carry one. */
+function focusKeep(){
+  const el = document.activeElement;
+  if(!el || !el.id) return null;
+  const tag = (el.tagName||'').toLowerCase();
+  if(tag !== 'input' && tag !== 'textarea') return null;
+  let start = null, end = null;
+  try{ start = el.selectionStart; end = el.selectionEnd; }catch(e){}
+  return {id: el.id, start: start, end: end};
+}
+function focusRestore(k){
+  if(!k) return;
+  const el = document.getElementById(k.id);
+  if(!el || el === document.activeElement) return;
+  try{
+    el.focus({preventScroll:true});
+    if(k.start !== null && typeof el.setSelectionRange === 'function') el.setSelectionRange(k.start, k.end);
+  }catch(e){}
+}
 function render(){
+  const __focus = focusKeep();
+  try{ renderInner(); } finally { focusRestore(__focus); }
+}
+function renderInner(){
   document.querySelectorAll('.nav-item').forEach(n=> n.classList.toggle('active', n.dataset.tab===currentTab));
   try{ navSync(); }catch(e){}
   // Ideas & Capital is a manager-level section
@@ -2738,6 +2807,7 @@ function render(){
   let html = '';
   if(currentTab==='dashboard') html = renderDashboard();
   else if(currentTab==='stock') html = renderStock();
+  else if(currentTab==='fleet') html = renderFleet();
   else if(currentTab==='tasks') html = renderTasks();
   else if(currentTab==='team') html = renderTeam();
   else if(currentTab==='customers') html = renderCustomers();
@@ -3476,6 +3546,692 @@ function studioRevert(){
   saveDB(); render();
   alert(n + ' photo' + (n===1?'':'s') + ' put back.');
 }
+const FLEET_LOCS = ['Jack Bygraves Forecourt','ABS Garage','Sandy Bodywork','Other Garage',
+  'In Transit','With Staff','Sold','Scrapped','Unassigned'];
+/* The places a car actually sits, as they get talked about day to day: the
+   forecourt, ABS, the bodyshop at Sandy, and whatever other garage a car has
+   gone to. Anything not at one of them - on a transporter, or out with a
+   member of staff - is counted separately rather than folded into a place it
+   is not at. */
+const FLEET_SITES = [
+  {key:'Forecourt', label:'Forecourt',    sub:'Jack Bygraves', locs:['Jack Bygraves Forecourt']},
+  {key:'ABS',       label:'ABS Garage',   sub:'the garage',    locs:['ABS Garage']},
+  {key:'Sandy',     label:'Sandy',        sub:'bodywork',      locs:['Sandy Bodywork']},
+  {key:'Other',     label:'Other garage', sub:'elsewhere',     locs:['Other Garage']}
+];
+const FLEET_OFFSITE = ['In Transit','With Staff'];
+function fleetSiteLocs(key){
+  const s = FLEET_SITES.find(function(x){ return x.key === key; });
+  return s ? s.locs : [];
+}
+function fleetSiteCount(key){
+  if(key === 'Out') return fleet().filter(function(f){ return FLEET_OFFSITE.indexOf(f.loc) >= 0; }).length;
+  const locs = fleetSiteLocs(key);
+  return fleet().filter(function(f){ return locs.indexOf(f.loc) >= 0; }).length;
+}
+/* Sold and scrapped are history, not somewhere a car is. */
+function fleetHere(){
+  return fleet().filter(function(f){ return f.loc !== 'Sold' && f.loc !== 'Scrapped'; }).length;
+}
+/* Starting the cars. A car sitting on a forecourt for a fortnight is a flat
+   battery, so they get run every week or so. The point of recording it is not
+   the tick - it is that the next person can see at a glance which ones are
+   still waiting, and which ones not to bother walking to because the battery
+   is already known to be flat. */
+const FLEET_START_STATES = {
+  ok      : {label:'Started fine',          tag:'tag-green', fault:false},
+  slow    : {label:'Started, but sluggish', tag:'tag-amber', fault:true},
+  jump    : {label:'Needed a jump start',   tag:'tag-amber', fault:true},
+  nostart : {label:'Would not start',       tag:'tag-red',   fault:true},
+  battery : {label:'Battery needs doing',   tag:'tag-red',   fault:true}
+};
+function fleetStartDays(){
+  const n = Number((DB.settings||{}).fleetStartDays);
+  return (n >= 1 && n <= 60) ? n : 7;
+}
+function fleetStartable(f){ return f.loc !== 'Sold' && f.loc !== 'Scrapped'; }
+function fleetDaysSinceStart(f){
+  if(!f.startAt) return null;
+  const then = new Date(f.startAt).getTime();
+  if(!then) return null;
+  return Math.floor((Date.now() - then) / 86400000);
+}
+/* never | ok | due | overdue, plus 'fault' which outranks the clock: a car
+   that would not start last time needs looking at whatever the date says. */
+function fleetStartStatus(f){
+  if(!fleetStartable(f)) return 'skip';
+  const st = FLEET_START_STATES[f.startState];
+  if(st && st.fault) return 'fault';
+  const d = fleetDaysSinceStart(f);
+  if(d === null) return 'never';
+  const every = fleetStartDays();
+  if(d >= every + 3) return 'overdue';
+  if(d >= every) return 'due';
+  return 'ok';
+}
+function fleetStartNeeded(){
+  return fleet().filter(function(f){
+    const s = fleetStartStatus(f);
+    return s === 'never' || s === 'due' || s === 'overdue';
+  });
+}
+function fleetStartFaults(){
+  return fleet().filter(function(f){ return fleetStartStatus(f) === 'fault'; });
+}
+function fleetStartLine(f){
+  if(!fleetStartable(f)) return '';
+  const st = FLEET_START_STATES[f.startState];
+  const d  = fleetDaysSinceStart(f);
+  if(st && st.fault){
+    return '<span class="tag ' + st.tag + '">⚠ ' + st.label + '</span>'
+      + (f.startNote ? ' <span class="flt-where">' + escapeHtml(f.startNote) + '</span>' : '')
+      + (d !== null ? ' <span class="flt-where">' + (d === 0 ? 'checked today' : d + 'd ago') + '</span>' : '');
+  }
+  if(d === null) return '<span class="tag tag-grey">never started</span>';
+  const s = fleetStartStatus(f);
+  const when = d === 0 ? 'started today' : (d === 1 ? 'started yesterday' : 'started ' + d + ' days ago');
+  const cls = s === 'overdue' ? 'tag-red' : (s === 'due' ? 'tag-amber' : 'tag-green');
+  return '<span class="tag ' + cls + '">' + (s === 'ok' ? '✓ ' : '') + when + '</span>'
+    + (f.startBy ? ' <span class="flt-where">by ' + escapeHtml(f.startBy) + '</span>' : '');
+}
+
+/* One car. */
+function openFleetStart(id){
+  const f = fleet().find(function(x){ return x.id === id; }); if(!f) return;
+  const st = f.startState || 'ok';
+  openModal(`<button class="close-x" onclick="closeModal()">✕</button>
+    <h3>${escapeHtml(f.reg||'')} — started up</h3>
+    <div class="small-muted" style="margin-bottom:12px">${escapeHtml([f.name,f.year,f.colour].filter(Boolean).join(' · '))}
+      ${f.startAt?`<br>Last done ${fmtDateTime(f.startAt)}${f.startBy?' by '+escapeHtml(f.startBy):''}.`:'<br>Not recorded before.'}</div>
+    <div class="field"><label>How did it go?</label>
+      <select id="fs_state">${Object.keys(FLEET_START_STATES).map(function(k){
+        return `<option value="${k}" ${k===st?'selected':''}>${FLEET_START_STATES[k].label}</option>`; }).join('')}</select>
+      <div class="small-muted" style="margin-top:4px">Anything but "started fine" stays flagged on the car until
+        someone sorts it, so nobody walks out to a car that was dead last week.</div></div>
+    <div class="field"><label>Note (optional)</label>
+      <input id="fs_note" value="${escapeAttr(f.startNote||'')}" placeholder="e.g. battery on charge, needs a new one"/></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveFleetStart('${f.id}')">Save</button>
+    </div>`);
+}
+function saveFleetStart(id){
+  const f = fleet().find(function(x){ return x.id === id; }); if(!f) return;
+  const state = (document.getElementById('fs_state')||{value:'ok'}).value;
+  const note  = (document.getElementById('fs_note')||{value:''}).value.trim();
+  applyFleetStart(f, state, note);
+  logChange('stock','Started up', {id:f.id, label:f.reg||''}, 'Start-up',
+    f.startAt?fmtDateTime(f.startAt):'', FLEET_START_STATES[state].label,
+    note || (currentUserName ? 'by ' + currentUserName : ''));
+  saveDB(); closeModal(); render();
+}
+function applyFleetStart(f, state, note){
+  const now = new Date().toISOString();
+  f.startAt = now;
+  f.startBy = currentUserName || '';
+  f.startState = state;
+  if(note) f.startNote = note; else delete f.startNote;
+  f.startLog = (f.startLog||[]).concat([{at:now, by:f.startBy, state:state, note:note||''}]).slice(-20);
+}
+
+/* The weekly round: tick off everything done in one go, rather than opening
+   forty cars one at a time. */
+let fleetRoundPicked = {};
+function openFleetRound(){
+  const due = fleetStartNeeded();
+  if(!due.length){ alert('Every car has been started within the last ' + fleetStartDays() + ' days.'); return; }
+  fleetRoundPicked = {};
+  due.forEach(function(f){ fleetRoundPicked[f.id] = true; });
+  openModal(`<button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Start-up round</h3>
+    <div class="small-muted" style="margin-bottom:10px">${due.length} ${due.length===1?'car is':'cars are'} waiting.
+      Untick any you did not get to, then save. Anything that would not start, leave unticked and record it on the
+      car itself so the fault is on record.</div>
+    <div style="max-height:46vh;overflow:auto;margin-bottom:12px" id="fs_list">
+      ${due.map(function(f){ return `<label style="display:flex;gap:9px;align-items:flex-start;padding:7px 2px;
+        border-bottom:1px solid var(--line);cursor:pointer">
+        <input type="checkbox" style="width:auto;flex:0 0 auto;margin:3px 0 0" checked
+          onchange="fleetRoundPicked['${f.id}']=this.checked"/>
+        <span><b>${escapeHtml(f.reg||'')}</b>
+          <span class="small-muted">${escapeHtml([f.name,f.colour].filter(Boolean).join(' · '))}</span>
+          <br><span class="small-muted">${escapeHtml(f.loc||'')}${(function(){
+            const d = fleetDaysSinceStart(f);
+            return d === null ? ' · never started' : ' · last started ' + d + ' days ago'; })()}</span>
+        </span></label>`; }).join('')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveFleetRound()">Mark as started</button>
+    </div>`);
+}
+function saveFleetRound(){
+  const ids = Object.keys(fleetRoundPicked).filter(function(k){ return fleetRoundPicked[k]; });
+  if(!ids.length){ closeModal(); return; }
+  captureUndo({t:'full', db: JSON.parse(JSON.stringify(DB)), label:'before the start-up round'});
+  let n = 0;
+  ids.forEach(function(id){
+    const f = fleet().find(function(x){ return x.id === id; });
+    if(!f) return;
+    applyFleetStart(f, 'ok', '');
+    n++;
+  });
+  logChange('stock','Start-up round', {id:'fleet', label:'Car manager'}, 'Cars started', '', String(n),
+    'by ' + (currentUserName||'') + ' · next round in ' + fleetStartDays() + ' days');
+  saveDB(); closeModal(); render();
+  if(typeof wbToast === 'function') wbToast(n + ' car' + (n===1?'':'s') + ' marked as started');
+}
+function setFleetStartDays(){
+  if(!isManager()) return;
+  const now = fleetStartDays();
+  const v = prompt('Start the cars every how many days?\n\nTwice a week is 3, once a week is 7.', String(now));
+  if(v === null) return;
+  const n = Math.round(Number(v));
+  if(!(n >= 1 && n <= 60)){ alert('Enter a number of days between 1 and 60.'); return; }
+  DB.settings = DB.settings || {};
+  DB.settings.fleetStartDays = n;
+  logChange('stock','Changed the start-up routine', {id:'fleet', label:'Car manager'}, 'Every',
+    now + ' days', n + ' days', '');
+  saveDB(); render();
+}
+let fleetLoc = 'All';
+let fleetQ = '';
+let fleetOpenHist = {};
+
+function fleet(){ return DB.fleet || (DB.fleet = []); }
+function fleetRegKey(r){ return String(r||'').replace(/\s+/g,'').toUpperCase(); }
+/* Car manager is a view of the cars we actually have, not a second list to be
+   kept up to date by hand. Every vehicle in Stock gets a row here the first
+   time it is seen, and the row carries the one thing Stock does not hold:
+   where the car physically is. Keeping two lists meant the manager showed
+   nothing at all until somebody imported one, while Stock had 54 cars in it. */
+function syncFleetFromStock(){
+  const list = fleet();
+  const have = {};
+  list.forEach(function(f){ const k = fleetRegKey(f.reg); if(k) have[k] = f; });
+  let changed = 0;
+  (DB.vehicles||[]).forEach(function(v){
+    const k = fleetRegKey(v.reg);
+    if(!k) return;
+    const row = have[k];
+    if(row){
+      /* keep the description in step with Stock, but never the location */
+      if(!row.vehicleId) { row.vehicleId = v.id; changed++; }
+      return;
+    }
+    list.push({id:nextId('flt'), vehicleId:v.id, reg:v.reg,
+      name:[v.make, v.model].filter(Boolean).join(' '), year:v.year, colour:v.color,
+      loc: v.sale ? 'Sold' : 'Jack Bygraves Forecourt', fromStock:true,
+      updAt: v.dateAdded || new Date().toISOString(), updBy:'',
+      history:[]});
+    have[k] = true; changed++;
+  });
+  /* a car that has since been sold should not still read as on the forecourt */
+  list.forEach(function(f){
+    const sc = fleetStockCar(f);
+    if(sc && sc.sale && f.loc !== 'Sold' && f.loc !== 'Scrapped'){ f.loc = 'Sold'; changed++; }
+  });
+  return changed;
+}
+function fleetCount(loc){
+  if(loc === 'All') return fleet().length;
+  if(loc === 'Due') return fleetStartNeeded().length;
+  if(loc === 'Fault') return fleetStartFaults().length;
+  if(loc === 'Out') return fleetSiteCount('Out');
+  const site = FLEET_SITES.find(function(x){ return x.key === loc; });
+  if(site) return fleetSiteCount(loc);
+  return fleet().filter(function(f){ return f.loc === loc; }).length;
+}
+function fleetMatchesFilter(f){
+  if(fleetLoc === 'All') return true;
+  if(fleetLoc === 'Due')   return fleetStartNeeded().some(function(x){ return x.id === f.id; });
+  if(fleetLoc === 'Fault') return fleetStartStatus(f) === 'fault';
+  if(fleetLoc === 'Out') return FLEET_OFFSITE.indexOf(f.loc) >= 0;
+  const site = FLEET_SITES.find(function(x){ return x.key === fleetLoc; });
+  if(site) return site.locs.indexOf(f.loc) >= 0;
+  return f.loc === fleetLoc;
+}
+function fleetShown(){
+  const q = String(fleetQ||'').trim().toLowerCase();
+  return fleet().filter(function(f){
+    if(!fleetMatchesFilter(f)) return false;
+    if(!q) return true;
+    return (f.reg||'').toLowerCase().indexOf(q) >= 0
+        || (f.name||'').toLowerCase().indexOf(q) >= 0;
+  }).sort(function(a,b){ return String(a.reg||'').localeCompare(String(b.reg||'')); });
+}
+/* The same car may also be in Stock. Match on registration, ignoring spaces. */
+function fleetStockCar(f){
+  const key = String(f.reg||'').replace(/\s+/g,'').toUpperCase();
+  if(!key) return null;
+  return (DB.vehicles||[]).find(function(v){
+    return String(v.reg||'').replace(/\s+/g,'').toUpperCase() === key; }) || null;
+}
+function fleetWhere(f){
+  if(f.loc === 'With Staff') return f.person ? 'With ' + escapeHtml(f.person) : 'With staff';
+  if(f.loc === 'In Transit'){
+    return [f.kind||'In transit', f.to?('to '+f.to):'', f.person||''].filter(Boolean).map(escapeHtml).join(' · ');
+  }
+  return '';
+}
+function fleetTagClass(loc){
+  return {'Jack Bygraves Forecourt':'tag-green','ABS Garage':'tag-blue',
+          'Sandy Bodywork':'tag-amber','Other Garage':'tag-grey',
+          'In Transit':'tag-amber','With Staff':'tag-blue',
+          'Scrapped':'tag-red','Sold':'tag-grey'}[loc] || 'tag-grey';
+}
+
+/* A sheet to walk round with. Grouped by where things are meant to be, with a
+   box to tick, because the reason to print this is to stand in the yard and
+   check the list against what is actually there. */
+function printFleet(withPhotos){
+  const all = fleetShown();
+  if(!all.length){ alert('Nothing to print.'); return; }
+  const scope = fleetLoc === 'All' ? 'All locations' : fleetLoc;
+  const groups = {};
+  all.forEach(function(f){ (groups[f.loc||'Unassigned'] = groups[f.loc||'Unassigned'] || []).push(f); });
+  const order = FLEET_LOCS.filter(function(l){ return groups[l]; })
+                  .concat(Object.keys(groups).filter(function(l){ return FLEET_LOCS.indexOf(l) < 0; }));
+  const dot = function(l){ return 'd-' + fleetSpine(l); };
+  const logo = (typeof BRAND_LOGO_PRINT === 'string' && BRAND_LOGO_PRINT)
+    ? `<img class="logo" src="${BRAND_LOGO_PRINT}" alt="">` : `<div class="wordmark">${escapeHtml(DB.bizName||'Jack Bygraves')}</div>`;
+  const photographed = all.filter(function(f){ return f.photoId; }).length;
+  const shotCell = function(f){
+    if(!withPhotos) return '';
+    return f.photoId ? `<td class="ph"><img src="${getPhotoUrl(f.photoId)}"/></td>`
+                     : `<td class="ph"><div class="noph">—</div></td>`;
+  };
+  const w = window.open('', '_blank');
+  w.document.write(`<html><head><meta charset="utf-8"><title>Car manager — ${escapeHtml(scope)}</title><style>
+    @page{size:A4;margin:11mm 11mm 14mm}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font:10.5px/1.45 "Helvetica Neue",Arial,sans-serif;color:#15181c;-webkit-print-color-adjust:exact;
+      padding-bottom:10mm}
+
+    .top{display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:7px}
+    .logo{height:13mm;display:block}
+    .wordmark{font-size:21px;font-weight:800;letter-spacing:-.02em}
+    .top .meta{text-align:right}
+    .top h1{font-size:15px;font-weight:800;letter-spacing:-.01em}
+    .top .sub{color:#6b7280;font-size:9.5px;margin-top:1px}
+    .rule{height:2.6px;background:#E10600;border-radius:2px;margin-bottom:11px}
+
+    .tiles{display:flex;gap:5px;margin-bottom:13px;flex-wrap:wrap}
+    .tl{border:1px solid #e3e6ea;border-radius:5px;padding:6px 10px;min-width:74px}
+    .tl b{display:block;font-size:15px;font-weight:800;line-height:1.1}
+    .tl span{font-size:7.5px;letter-spacing:.07em;text-transform:uppercase;color:#7b828c;white-space:nowrap}
+    .tl.sel{border-color:#E10600;background:#fff6f5}
+    .tl.sel b{color:#E10600}
+    .tl.ph{margin-left:auto;border-style:dashed}
+    .su{font-size:9px;color:#4a515b;white-space:nowrap}
+    .su .due{color:#b45309;font-weight:700}
+    .su .bad{color:#b91c1c}
+
+    .sec{margin-bottom:12px;break-inside:avoid}
+    .sh{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+    .sh .dt{width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+    .d-green{background:#1a9a52}.d-amber{background:#e08900}.d-blue{background:#2b6fd4}
+    .d-red{background:#d12b20}.d-grey{background:#9aa1ab}
+    .sh h2{font-size:12.5px;font-weight:800}
+    .sh .cnt{font-size:8.5px;color:#6b7280;background:#f1f3f5;border-radius:20px;padding:1.5px 8px;font-weight:700}
+
+    table{width:100%;border-collapse:collapse}
+    th{text-align:left;font-size:7.5px;letter-spacing:.08em;text-transform:uppercase;color:#8a9099;
+      padding:0 6px 3px;border-bottom:1.3px solid #15181c;font-weight:700}
+    td{padding:4.5px 6px;border-bottom:1px solid #eef0f2;vertical-align:middle;font-size:10px}
+    tr:nth-child(even) td{background:#fafbfc}
+    tr{break-inside:avoid}
+    td.bx{width:17px}
+    .box{width:11px;height:11px;border:1.3px solid #9aa1ab;border-radius:2.5px;display:block}
+    td.rg{font-weight:800;white-space:nowrap;width:74px;letter-spacing:.02em;font-size:10.5px}
+    td.ca{color:#5d646e;font-size:9.5px}
+    td.st span{display:inline-block;background:#f1f3f5;border-radius:20px;padding:1.5px 8px;font-size:9px}
+    td.wh{font-size:9.5px;white-space:nowrap;color:#4a515b}
+    td.up{font-size:8.5px;color:#9aa1ab;white-space:nowrap;text-align:right;line-height:1.3}
+    td.ph{width:44px}
+    td.ph img{width:40px;height:40px;object-fit:cover;border-radius:4px;display:block}
+    .noph{width:40px;height:40px;border:1px dashed #dde1e5;border-radius:4px;color:#c5cad0;
+      display:flex;align-items:center;justify-content:center;font-size:11px}
+    .tick{color:#1a9a52;font-weight:800;margin-left:4px}
+    .tick.off{color:#d4d8dd}
+
+    .foot{position:fixed;bottom:5mm;left:11mm;right:11mm;border-top:1px solid #eef0f2;padding-top:4px;
+      display:flex;justify-content:space-between;font-size:8px;color:#9aa1ab}
+    </style></head><body>
+
+    <div class="top">
+      ${logo}
+      <div class="meta">
+        <h1>Car manager</h1>
+        <div class="sub">${escapeHtml(scope)} · ${all.length} vehicle${all.length===1?'':'s'}</div>
+        <div class="sub">${fmtDateTime(new Date().toISOString())}${currentUserName?(' · '+escapeHtml(currentUserName)):''}</div>
+      </div>
+    </div>
+    <div class="rule"></div>
+
+    <div class="tiles">
+      ${order.map(function(l){ return `<div class="tl ${fleetLoc===l?'sel':''}">
+        <b>${groups[l].length}</b><span>${escapeHtml(l)}</span></div>`; }).join('')}
+      <div class="tl ph"><b>${photographed}<span style="font-size:10px;color:#9aa1ab;font-weight:400"> / ${all.length}</span></b>
+        <span>Photo confirmed</span></div>
+    </div>
+
+    ${order.map(function(l){
+      const list = groups[l].slice().sort(function(a,b){ return String(a.reg||'').localeCompare(String(b.reg||'')); });
+      return `<div class="sec">
+        <div class="sh"><span class="dt ${dot(l)}"></span><h2>${escapeHtml(l)}</h2>
+          <span class="cnt">${list.length}</span></div>
+        <table><thead><tr><th></th>${withPhotos?'<th></th>':''}<th>Reg</th><th>Vehicle</th>
+          <th>Status</th><th>Who / where</th><th>Started</th><th style="text-align:right">Last moved</th></tr></thead>
+        <tbody>${list.map(function(f){
+          return `<tr><td class="bx"><span class="box"></span></td>
+            ${shotCell(f)}
+            <td class="rg">${escapeHtml(f.reg||'')}</td>
+            <td class="ca">${escapeHtml([f.name,f.year,f.colour].filter(Boolean).join(' · '))}</td>
+            <td class="st">${f.note?`<span>${escapeHtml(f.note)}</span>`:''}</td>
+            <td class="wh">${escapeHtml(fleetWherePlain(f)||'')}
+              <span class="tick ${f.photoId?'':'off'}">✓</span></td>
+            <td class="su">${(function(){
+              if(!fleetStartable(f)) return '';
+              const st = FLEET_START_STATES[f.startState];
+              const d  = fleetDaysSinceStart(f);
+              if(st && st.fault) return '<b class="bad">' + escapeHtml(st.label) + '</b>'
+                + (f.startNote ? '<br>' + escapeHtml(f.startNote) : '');
+              if(d === null) return '<span class="due">never</span>';
+              const s2 = fleetStartStatus(f);
+              return (s2 === 'ok' ? '' : '<span class="due">')
+                + (d === 0 ? 'today' : d + ' days ago')
+                + (s2 === 'ok' ? '' : '</span>');
+            })()}</td>
+            <td class="up">${f.updAt?fmtDateTime(f.updAt):'—'}${f.updBy?('<br>'+escapeHtml(f.updBy)):''}</td>
+          </tr>`; }).join('')}</tbody></table></div>`; }).join('')}
+
+    <div class="foot">
+      <span>Tick the box when you have seen it yourself · ✓ means a photo was taken where it is ·
+        cars are started every ${fleetStartDays()} days</span>
+      <span>${escapeHtml(DB.bizName||'Jack Bygraves')}</span>
+    </div>
+    </body></html>`);
+  w.document.close();
+  setTimeout(function(){ try{ w.print(); }catch(e){} }, withPhotos ? 900 : 250);
+}
+function openFleetPrint(){
+  const n = fleetShown().length, withPh = fleetShown().filter(function(f){ return f.photoId; }).length;
+  openModal(`<button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Print the car manager</h3>
+    <div class="small-muted" style="margin-bottom:11px">${n} vehicle${n===1?'':'s'}${
+      fleetLoc==='All'?'':(' at <b>'+escapeHtml(fleetLoc)+'</b>')} · grouped by where they are, with a box to
+      tick as you check each one.</div>
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <button class="btn btn-brand" style="text-align:left;height:auto;padding:11px 13px;white-space:normal"
+        onclick="closeModal();printFleet(false)">
+        <b>List only</b><br><span class="small-muted">One line each — fits a yard walk on a couple of sheets.</span></button>
+      <button class="btn btn-ghost" style="text-align:left;height:auto;padding:11px 13px;white-space:normal"
+        onclick="closeModal();printFleet(true)">
+        <b>With photos</b><br><span class="small-muted">Adds the position photo beside each one.
+        ${withPh} of ${n} have one. Slower to open and longer to print.</span></button>
+    </div>`);
+}
+function fleetSpine(loc){
+  return {'Jack Bygraves Forecourt':'green','ABS Garage':'blue',
+          'Sandy Bodywork':'amber','Other Garage':'grey',
+          'In Transit':'amber','With Staff':'blue',
+          'Scrapped':'red','Sold':'grey'}[loc] || 'grey';
+}
+function renderFleet(){
+  /* Done here rather than on every save: it only matters when the screen is
+     being looked at, and one write when stock has changed is enough. */
+  if(syncFleetFromStock() && !window.__fleetSyncing){
+    window.__fleetSyncing = true;
+    setTimeout(function(){ window.__fleetSyncing = false; saveDB(); }, 0);
+  }
+  const rows = fleetShown();
+  const tabs = ['All'].concat(FLEET_LOCS).filter(function(l){
+    return l === 'All' || fleetCount(l) > 0 || fleetLoc === l; });
+  const needPhoto = fleet().filter(function(f){ return !f.photoId; }).length;
+  return `
+  <div class="topbar">
+    <div><h1>Car manager</h1><div class="date">Where every vehicle is right now</div></div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-ghost" onclick="openFleetPrint()">🖨 Print</button>
+      ${fleet().length?`<button class="btn ${fleetStartNeeded().length?'btn-brand':'btn-ghost'}"
+        onclick="openFleetRound()">🔑 Start-up round${fleetStartNeeded().length?` (${fleetStartNeeded().length})`:''}</button>`:''}
+      <button class="btn btn-ghost" onclick="openFleetAdd()">+ Add a vehicle</button>
+    </div>
+  </div>
+
+  <div class="flt-sites">
+    ${FLEET_SITES.map(function(st){ return `<div class="fs ${fleetLoc===st.key?'on':''}"
+      onclick="fleetLoc='${fleetLoc===st.key?'All':st.key}';render()">
+      <b>${fleetSiteCount(st.key)}</b><span>${escapeHtml(st.label)}</span>
+      <em>${escapeHtml(st.sub)}</em></div>`; }).join('')}
+    ${fleetSiteCount('Out') ? `<div class="fs ${fleetLoc==='Out'?'on':''}"
+      onclick="fleetLoc='${fleetLoc==='Out'?'All':'Out'}';render()">
+      <b>${fleetSiteCount('Out')}</b><span>Away</span><em>with staff or moving</em></div>` : ''}
+    ${fleet().length ? `<div class="fs ${fleetLoc==='Due'?'on':''}${fleetStartNeeded().length?' warn':''}"
+      onclick="fleetLoc='${fleetLoc==='Due'?'All':'Due'}';render()">
+      <b>${fleetStartNeeded().length}</b><span>To start</span>
+      <em>every ${fleetStartDays()} days</em></div>` : ''}
+    ${fleetStartFaults().length ? `<div class="fs bad ${fleetLoc==='Fault'?'on':''}"
+      onclick="fleetLoc='${fleetLoc==='Fault'?'All':'Fault'}';render()">
+      <b>${fleetStartFaults().length}</b><span>Battery</span><em>won't start or flat</em></div>` : ''}
+  </div>
+  <div class="small-muted" style="margin:0 0 12px">${fleetHere()} ${fleetHere()===1?'vehicle':'vehicles'} on the
+    books${fleet().length !== fleetHere() ? `, plus ${fleet().length - fleetHere()} sold or scrapped` : ''}.
+    Tap a place to see only what is there.
+    ${fleet().length?` Cars get started every ${fleetStartDays()} days${isManager()?` — <span class="link"
+      style="cursor:pointer" onclick="setFleetStartDays()">change</span>`:''}.`:''}</div>
+
+  <div class="flt-sum">
+    ${tabs.map(function(l){ return `<div class="s ${fleetLoc===l?'on':''}" style="cursor:pointer"
+      onclick="fleetLoc='${l}';render()"><b>${fleetCount(l)}</b><span>${escapeHtml(l)}</span></div>`; }).join('')}
+  </div>
+
+  ${(!fleet().length)?`<div class="card" style="box-shadow:none;padding:16px;margin-bottom:12px">
+    <b>No vehicles yet.</b>
+    <div class="small-muted" style="margin-top:5px">Every car you add to Stock appears here on its own, with the
+      forecourt as its starting place. Add one in Stock, or use <b>Add a vehicle</b> above for something that is
+      not stock — a part-exchange waiting to be booked in, or a courtesy car.</div>
+  </div>`:''}
+
+
+
+  ${(needPhoto && fleet().length)?`<div class="small-muted" style="margin:0 0 9px">
+    ${needPhoto} of ${fleet().length} have no photo against ${needPhoto===1?'its':'their'} location yet —
+    a photo is what turns "it should be at Sandy" into "it is at Sandy".</div>`:''}
+
+  <div class="field" style="margin-bottom:10px">
+    <input id="q_fleet" placeholder="Search registration, make or model" value="${escapeAttr(fleetQ)}"
+      oninput="fleetQ=this.value;clearTimeout(window.__fq);window.__fq=setTimeout(render,250)"/>
+  </div>
+
+  ${rows.length ? rows.map(function(f){
+    const sc = fleetStockCar(f);
+    const where = fleetWhere(f);
+    return `<div class="flt">
+      <div class="flt-spine flt-sp-${fleetSpine(f.loc)}"></div>
+      ${f.photoId
+        ? `<img class="flt-shot" src="${getPhotoUrl(f.photoId)}" title="Taken ${f.photoAt?fmtDateTime(f.photoAt):''} — tap to open"
+             onclick="window.open('${getPhotoUrl(f.photoId)}','_blank')"/>`
+        : `<label class="flt-none" title="Add a photo of where it is">\u{1F4F7}
+             <input type="file" accept="image/*" capture="environment" hidden
+               onchange="uploadFleetPhoto('${f.id}', this)"/></label>`}
+      <div class="flt-body">
+        <div><span class="flt-reg">${escapeHtml(f.reg||'')}</span>
+          <span class="flt-desc">${escapeHtml([f.name,f.year,f.colour].filter(Boolean).join(' · '))}</span></div>
+        <div class="flt-line2">
+          <span class="tag ${fleetTagClass(f.loc)}">${escapeHtml(f.loc||'Unassigned')}</span>
+          ${where?`<span class="flt-where">${where}</span>`:''}
+          ${f.photoId?`<span class="tag tag-green" title="A photo was taken where it is">✓ confirmed</span>`:''}
+        </div>
+        ${fleetStartable(f)?`<div class="flt-line2" style="margin-top:3px">
+          ${fleetStartLine(f)}
+          <span class="link" style="cursor:pointer;font-size:12px"
+            onclick="openFleetStart('${f.id}')">record a start-up</span>
+        </div>`:''}
+        ${f.note?`<div class="flt-note">${escapeHtml(f.note)}</div>`:''}
+        <div class="flt-meta">
+          ${f.updAt?('Moved '+fmtDateTime(f.updAt)+(f.updBy?(' by '+escapeHtml(f.updBy)):'')):'Not moved yet'}
+          ${(f.history&&f.history.length>1)?` · <span class="link" style="cursor:pointer"
+            onclick="fleetOpenHist['${f.id}']=!fleetOpenHist['${f.id}'];render()">${
+              fleetOpenHist[f.id]?'hide history':'history'}</span>`:''}
+        </div>
+        ${(fleetOpenHist[f.id] && f.history && f.history.length)?`<div class="flt-hist">
+          ${f.history.slice().reverse().map(function(h){
+            return `${escapeHtml(h.loc)}${h.extra?(' · '+escapeHtml(h.extra)):''} — ${fmtDateTime(h.at)}${
+              h.by?(' by '+escapeHtml(h.by)):''}`; }).join('<br>')}</div>`:''}
+      </div>
+      <div class="flt-act">
+        <button class="btn btn-sm btn-brand" onclick="openFleetMove('${f.id}')">Move</button>
+        ${f.photoId?`<label class="btn btn-sm btn-ghost" style="cursor:pointer;text-align:center">Photo
+          <input type="file" accept="image/*" capture="environment" hidden
+            onchange="uploadFleetPhoto('${f.id}', this)"/></label>`:''}
+        ${sc?`<button class="btn btn-sm btn-ghost" onclick="openVehicle('${sc.id}')">Stock</button>`:''}
+        ${isSuperAdmin()?`<button class="btn btn-sm btn-ghost" style="color:var(--red)"
+          onclick="deleteFleet('${f.id}')">✕</button>`:''}
+      </div></div>`;
+  }).join('') : `<div class="empty">${fleetQ?'Nothing matches that.':'No vehicles on this list yet.'}</div>`}
+
+  ${(isSuperAdmin() && !fleet().length)?`<div class="card" style="padding:14px;margin-top:10px">
+    <b>Start from your existing list</b>
+    
+  </div>`:''}`;
+}
+
+/* A photo taken where the car is, which is the only real proof of where it is.
+   Taking a new one replaces the old: the question is always "where is it now",
+   never "where was it in September". */
+async function uploadFleetPhoto(id, input){
+  const f = fleet().find(function(x){ return x.id === id; });
+  const file = input && input.files && input.files[0];
+  if(!f || !file) return;
+  input.value = '';
+  const old = f.photoId;
+  try{
+    const res = await storePhoto(file);
+    if(!res.ref){ alert('That photo could not be saved. ' + (res.error||'')); return; }
+    f.photoId = res.ref;
+    f.photoAt = new Date().toISOString();
+    f.photoBy = currentUserName || '';
+    if(f.history && f.history.length) f.history[f.history.length-1].photo = true;
+    logChange('stock','Photo of where it is', {id:f.id, label:f.reg}, 'Location photo',
+      old?'replaced':'', f.loc, 'by ' + (currentUserName||''));
+    saveDB(); render(); notePhotoFallback(res);
+    if(old) deletePhoto(old);
+  }catch(e){ alert('That photo could not be saved. ' + (e.message||e)); }
+}
+
+function openFleetMove(id){
+  /* Staff move the cars, so staff record the moves. Anyone signed in can say
+     where a vehicle is and photograph it; only a Super Admin can take one off
+     the list. */
+  const f = fleet().find(function(x){ return x.id === id; }); if(!f) return;
+  openModal(`<button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Move ${escapeHtml(f.reg||'this vehicle')}</h3>
+    <div class="small-muted" style="margin-bottom:11px">${escapeHtml([f.name,f.year,f.colour].filter(Boolean).join(' · '))}
+      · currently <b>${escapeHtml(f.loc||'Unassigned')}</b></div>
+    <div class="field"><label>Where is it going?</label>
+      <select id="fm_loc" onchange="fleetMoveFields()">
+        ${FLEET_LOCS.map(function(l){ return `<option ${f.loc===l?'selected':''}>${l}</option>`; }).join('')}
+      </select></div>
+    <div id="fm_extra"></div>
+    <div class="field"><label>What is happening with it?</label>
+      <input id="fm_note" value="${escapeAttr(f.note||'')}" placeholder="e.g. Needs bodywork, Ready to sell"/></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveFleetMove('${f.id}')">Save</button></div>`);
+  fleetMoveFields(f);
+}
+/* Only the places that need one ask for a name or a destination. */
+function fleetMoveFields(f){
+  const box = document.getElementById('fm_extra'); if(!box) return;
+  const loc = (document.getElementById('fm_loc')||{value:''}).value;
+  const people = (DB.team||[]).map(function(t){ return t.name; }).filter(Boolean);
+  const cur = f || {};
+  if(loc === 'With Staff'){
+    box.innerHTML = `<div class="field"><label>Who has it?</label>
+      <input id="fm_person" list="fm_people" value="${escapeAttr(cur.person||'')}"/>
+      <datalist id="fm_people">${people.map(function(p){ return `<option>${escapeHtml(p)}</option>`; }).join('')}</datalist></div>`;
+  } else if(loc === 'In Transit'){
+    box.innerHTML = `<div class="field-row">
+        <div class="field"><label>Collection or delivery?</label>
+          <select id="fm_kind"><option ${cur.kind==='Collection'?'selected':''}>Collection</option>
+            <option ${cur.kind==='Delivery'?'selected':''}>Delivery</option></select></div>
+        <div class="field"><label>Going to</label>
+          <input id="fm_to" value="${escapeAttr(cur.to||'')}" placeholder="e.g. Biggleswade"/></div>
+      </div>
+      <div class="field"><label>Who is moving it?</label>
+        <input id="fm_person" list="fm_people" value="${escapeAttr(cur.person||'')}"/>
+        <datalist id="fm_people">${people.map(function(p){ return `<option>${escapeHtml(p)}</option>`; }).join('')}</datalist></div>`;
+  } else box.innerHTML = '';
+}
+function saveFleetMove(id){
+  const f = fleet().find(function(x){ return x.id === id; }); if(!f) return;
+  const val = function(i){ const e = document.getElementById(i); return e ? e.value.trim() : ''; };
+  const was = f.loc, wasWhere = [f.person, f.to].filter(Boolean).join(' ');
+  f.loc    = val('fm_loc') || f.loc;
+  f.person = (f.loc === 'With Staff' || f.loc === 'In Transit') ? val('fm_person') : '';
+  f.kind   = f.loc === 'In Transit' ? val('fm_kind') : '';
+  f.to     = f.loc === 'In Transit' ? val('fm_to') : '';
+  f.note   = val('fm_note');
+  f.updAt  = new Date().toISOString();
+  f.updBy  = currentUserName || '';
+  f.history = f.history || [];
+  f.history.push({loc:f.loc, extra:fleetWherePlain(f), note:f.note, at:f.updAt, by:f.updBy});
+  logChange('stock','Moved', {id:f.id, label:f.reg}, 'Location', was + (wasWhere?(' · '+wasWhere):''),
+    f.loc + (fleetWherePlain(f)?(' · '+fleetWherePlain(f)):''), f.note||'');
+  saveDB(); closeModal(); render();
+}
+function fleetWherePlain(f){
+  if(f.loc === 'With Staff') return f.person || '';
+  if(f.loc === 'In Transit') return [f.kind, f.to?('to '+f.to):'', f.person].filter(Boolean).join(' · ');
+  return '';
+}
+function openFleetAdd(){
+  openModal(`<button class="close-x" onclick="closeModal()">✕</button>
+    <h3>Add a vehicle to the car manager</h3>
+    <div class="field-row">
+      <div class="field"><label>Registration *</label><input id="fa_reg" style="text-transform:uppercase"/></div>
+      <div class="field"><label>Make and model</label><input id="fa_name" placeholder="e.g. Ford Fiesta"/></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Year</label><input id="fa_year"/></div>
+      <div class="field"><label>Colour</label><input id="fa_colour"/></div>
+    </div>
+    <div class="field"><label>Where is it?</label>
+      <select id="fa_loc">${FLEET_LOCS.map(function(l){ return `<option>${l}</option>`; }).join('')}</select></div>
+    <div class="field"><label>What is happening with it?</label><input id="fa_note"/></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-brand" onclick="saveFleetAdd()">Add</button></div>`);
+}
+function saveFleetAdd(){
+  const val = function(i){ const e = document.getElementById(i); return e ? e.value.trim() : ''; };
+  const reg = val('fa_reg').toUpperCase().replace(/\s+/g,'');
+  if(!reg){ alert('Enter the registration.'); return; }
+  if(fleet().some(function(f){ return (f.reg||'').replace(/\s+/g,'') === reg; })){
+    alert(reg + ' is already on the list.'); return; }
+  const now = new Date().toISOString();
+  const f = {id:nextId('flt'), reg:reg, name:val('fa_name'), year:val('fa_year'), colour:val('fa_colour'),
+             loc:val('fa_loc')||'Unassigned', person:'', kind:'', to:'', note:val('fa_note'),
+             updAt:now, updBy:currentUserName||'', history:[{loc:val('fa_loc')||'Unassigned', extra:'',
+             note:val('fa_note'), at:now, by:currentUserName||''}]};
+  fleet().push(f);
+  logChange('stock','Added to the car manager', {id:f.id, label:reg}, 'Location', '', f.loc, f.note||'');
+  saveDB(); closeModal(); render();
+}
+function deleteFleet(id){
+  if(!isSuperAdmin()) return;
+  const f = fleet().find(function(x){ return x.id === id; }); if(!f) return;
+  if(!confirm('Take ' + (f.reg||'this vehicle') + ' off the car manager?\n\nIts stock record is not touched.')) return;
+  logChange('stock','Removed from the car manager', {id:f.id, label:f.reg}, 'Location', f.loc, '', '');
+  DB.fleet = fleet().filter(function(x){ return x.id !== id; });
+  saveDB(); render();
+}
+function fmtDateTime(iso){
+  if(!iso) return '';
+  const d = new Date(iso); if(isNaN(d)) return '';
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ', ' +
+         d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+
 function renderStock(){
   const isCurrent = v => !v.sale && v.status!=='sold' && !vGone(v);
   let list = DB.vehicles.filter(v=>{
@@ -3523,7 +4279,7 @@ function renderStock(){
     }).join('')}
   </div>
   <div class="toolbar">
-    <input placeholder="Search reg, make or model…" value="${stockSearch}" oninput="stockSearch=this.value;render()" style="width:260px"/>
+    <input id="q_stock" placeholder="Search reg, make or model…" value="${escapeAttr(stockSearch)}" oninput="stockSearch=this.value;render()" style="width:260px"/>
     <select class="btn btn-ghost btn-sm" onchange="stockSort=this.value;render()" title="Sort the list">
       ${[['newest','Newest in stock'],['oldest','Oldest in stock'],['longest','Longest unsold'],
          ['soldlast','Sold most recently'],['soldfirst','Sold earliest'],
@@ -4657,15 +5413,34 @@ async function removeInvoicePhoto(vId, idx){
 }
 
 /* ---- sale ---- */
+let saleEditing = null;   /* the vehicle whose finished sale is open for changing */
+function editSale(vId){
+  if(!isManager()){ alert('Only a manager can change a sale after it has been recorded.'); return; }
+  saleEditing = vId; renderVehicleDetail();
+}
+function cancelEditSale(){ saleEditing = null; renderVehicleDetail(); }
 function vehicleSaleTab(v){
   if(v.returned && !v.sale) return returnRecordCard(v);
-  if(v.sale){
+  if(v.sale && saleEditing !== v.id){
     const s=v.sale;
     return `<div class="card">
       <h3 style="margin-top:0">Sale record</h3>
       <table>
         <tr><td>Invoice number</td><td><b>${escapeHtml(s.invoiceRef||'—')}</b>${isSuperAdmin()?` <a class="link" onclick="editInvoiceNo('${v.id}')" style="font-weight:400">change</a>`:''}</td></tr>
-        <tr><td>Customer</td><td>${(DB.customers.find(c=>c.id===s.customerId)||{}).name||'—'}</td></tr>
+        ${(function(){
+          /* Who bought it and how to reach them. It is on the invoice already,
+             so having to open the customer record to read a phone number was
+             just an extra click when someone rings about their car. */
+          const c = DB.customers.find(function(x){ return x.id===s.customerId; }) || {};
+          const contact = [c.phone, c.email].filter(Boolean);
+          const place   = [c.address, c.postcode].filter(Boolean);
+          return `<tr><td>Customer</td><td>${c.name?`<a class="link" onclick="openEditSaleCustomer('${v.id}')" title="Open their details">${escapeHtml(c.name)}</a>`:'—'}</td></tr>
+          ${contact.length?`<tr><td>Contact</td><td>${c.phone?`<a href="tel:${escapeAttr(c.phone)}">${escapeHtml(c.phone)}</a>`:''}${
+            (c.phone&&c.email)?' · ':''}${c.email?`<a href="mailto:${escapeAttr(c.email)}">${escapeHtml(c.email)}</a>`:''}</td></tr>`:''}
+          ${place.length?`<tr><td>Address</td><td>${escapeHtml(place.join(', '))}</td></tr>`:''}
+          ${(!contact.length && !place.length && c.name)?`<tr><td>Contact</td><td class="small-muted">No phone, email or address on file —
+            <a class="link" onclick="openEditSaleCustomer('${v.id}')">add them</a></td></tr>`:''}`;
+        })()}
         <tr><td>Sale date</td><td>${fmtDate(s.date)}</td></tr>
         <tr><td>Sale price</td><td>${fmtMoney(s.salePrice)}</td></tr>
         <tr><td>Discount</td><td>${fmtMoney(s.discount)}</td></tr>
@@ -4682,6 +5457,8 @@ function vehicleSaleTab(v){
       ${licenceCard(v)}
       <div style="margin-top:14px;display:flex;gap:10px;">
         <button class="btn btn-brand" onclick="printInvoice('${v.id}')">🖨 View / print invoice</button>
+        ${isManager()?`<button class="btn btn-ghost" onclick="editSale('${v.id}')"
+          title="Change the figures or the customer on this sale">Edit sale</button>`:''}
         <button class="btn btn-ghost" onclick="undoSale('${v.id}')">Undo sale</button>
         <button class="btn btn-ghost" onclick="openReturn('${v.id}','customer')">↩ Customer returned it</button>
       </div>
@@ -4695,9 +5472,13 @@ function vehicleSaleTab(v){
   const sx = v.sale;
   const hasPx = !!(sx && ((sx.partEx && (sx.partEx.reg || sx.partEx.make || sx.partEx.model)) || Number(sx.partExValue)>0));
   return `<div class="card">
-    <h3 style="margin-top:0">Record a sale for ${v.reg}</h3>
-    <div class="small-muted" style="margin:-4px 0 12px">Going back to the seller instead?
-      <a class="link" onclick="openReturn('${v.id}','supplier')">Record it as a return</a></div>
+    <h3 style="margin-top:0">${v.sale?`Change the sale of ${v.reg}`:`Record a sale for ${v.reg}`}</h3>
+    ${v.sale?`<div class="small-muted" style="margin:-4px 0 12px">Sold ${fmtDate(v.sale.date)}${
+      v.sale.invoiceRef?' on invoice '+escapeHtml(v.sale.invoiceRef):''}. The invoice number and the wording that was
+      signed stay as they were; the figures and the customer are yours to correct.
+      <a class="link" onclick="cancelEditSale()">Leave it as it is</a></div>`
+      :`<div class="small-muted" style="margin:-4px 0 12px">Going back to the seller instead?
+      <a class="link" onclick="openReturn('${v.id}','supplier')">Record it as a return</a></div>`}
     ${r?`<div class="card" style="box-shadow:none;background:var(--brand-dim);padding:12px;margin-bottom:12px;">
       <div style="font-weight:700;margin-bottom:4px;">Reserved for ${escapeHtml(r.name)}</div>
       <div class="small-muted">${escapeHtml([r.phone,r.email,r.postcode].filter(Boolean).join(' · '))}
@@ -4723,9 +5504,9 @@ function vehicleSaleTab(v){
         Not on the list? <a class="link" onclick="openAddCustomer(true)">Add a new customer</a></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Sale price (£)</label><input id="s_price" type="number" value="${v.askingPrice||0}"/></div>
-      <div class="field"><label>Discount (£)</label><input id="s_discount" type="number" value="0"/></div>
-      <div class="field"><label>Sale date</label><input id="s_date" type="date" value="${todayISO()}"/></div>
+      <div class="field"><label>Sale price (£)</label><input id="s_price" type="number" value="${(v.sale&&Number(v.sale.salePrice))||v.askingPrice||0}"/></div>
+      <div class="field"><label>Discount (£)</label><input id="s_discount" type="number" value="${(v.sale&&Number(v.sale.discount))||0}"/></div>
+      <div class="field"><label>Sale date</label><input id="s_date" type="date" value="${(v.sale&&v.sale.date)||todayISO()}"/></div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;margin:12px 0 4px;font-size:13.5px;cursor:pointer">
       <input type="checkbox" id="s_hasPx" ${hasPx?'checked':''} style="width:17px;height:17px" onchange="togglePxFields(this.checked)"/>
@@ -4755,9 +5536,9 @@ function vehicleSaleTab(v){
       <span><strong>Trade sale</strong> — buyer is a business, not a consumer. Prints the trade terms instead of the consumer ones.</span>
     </label>
     <div class="field-row">
-      <div class="field"><label>Admin charge (£)</label><input id="s_admin" type="number" value="0"/></div>
-      <div class="field"><label>Delivery charge (£)</label><input id="s_delivery" type="number" value="0"/></div>
-      <div class="field"><label>Warranty (£)</label><input id="s_warranty" type="number" value="0"/></div>
+      <div class="field"><label>Admin charge (£)</label><input id="s_admin" type="number" value="${(v.sale&&Number(v.sale.adminCharge))||0}"/></div>
+      <div class="field"><label>Delivery charge (£)</label><input id="s_delivery" type="number" value="${(v.sale&&Number(v.sale.deliveryCharge))||0}"/></div>
+      <div class="field"><label>Warranty (£)</label><input id="s_warranty" type="number" value="${(v.sale&&Number(v.sale.warranty))||0}"/></div>
     </div>
     <div class="section-title" style="margin-top:12px"><h2>Extra charges</h2></div>
     <div class="small-muted" style="margin:-4px 0 8px">Anything else the customer is paying for. Each line prints on the invoice with its own note, so write what it is for.</div>
@@ -4923,6 +5704,7 @@ function pxIntoStock(v){
 }
 function confirmSale(vId){
   const v = DB.vehicles.find(x=>x.id===vId);
+  saleEditing = null;
   const customerId = document.getElementById('s_customer').value;
   if(!customerId){ alert('Select or add a customer first'); return; }
   const wasSold = !!v.sale, prevSale = v.sale ? {...v.sale} : null;
@@ -8499,7 +9281,7 @@ function renderCustomers(){
     <button class="btn btn-brand" onclick="openAddCustomer(false)">+ Add customer</button>
   </div>
   <div class="toolbar" style="margin-bottom:12px;">
-    <input placeholder="Search name, phone, email or postcode…" value="${escapeAttr(custSearch)}"
+    <input id="q_cust" placeholder="Search name, phone, email or postcode…" value="${escapeAttr(custSearch)}"
       oninput="custSearch=this.value;render()" style="width:300px"/>
     <div class="chip-row" style="margin:0;">
       <div class="chip ${custView==='recent'&&!custSearch?'active':''}" onclick="custSearch='';custView='recent';render()">Recent</div>
@@ -9295,7 +10077,7 @@ function renderLeads(){
 
   ${leadView==='bycar' ? renderLeadsByCar() : leadView==='sources' ? renderLeadSources() : `
   <div class="toolbar">
-    <input placeholder="Search name, phone, reg&hellip;" value="${escapeAttr(leadSearch)}" oninput="leadSearch=this.value;render()" style="flex:1;min-width:180px;"/>
+    <input id="q_lead" placeholder="Search name, phone, reg&hellip;" value="${escapeAttr(leadSearch)}" oninput="leadSearch=this.value;render()" style="flex:1;min-width:180px;"/>
     <select onchange="leadFilter=this.value;render()">
       <option value="active" ${leadFilter==='active'?'selected':''}>Active only</option>
       <option value="due" ${leadFilter==='due'?'selected':''}>Follow-ups due</option>
@@ -11920,7 +12702,7 @@ function renderAudit(){
   </div>
 
   <div class="toolbar">
-    <input placeholder="Search reg, person, value…" value="${escapeAttr(auditSearch)}" oninput="auditSearch=this.value;render()" style="flex:1;min-width:170px;"/>
+    <input id="q_audit" placeholder="Search reg, person, value…" value="${escapeAttr(auditSearch)}" oninput="auditSearch=this.value;render()" style="flex:1;min-width:170px;"/>
     <select onchange="auditArea=this.value;render()">
       <option value="all" ${auditArea==='all'?'selected':''}>All areas</option>
       ${Object.entries(AUDIT_AREAS).map(([k,v])=>`<option value="${k}" ${auditArea===k?'selected':''}>${v.label}</option>`).join('')}
